@@ -20,11 +20,13 @@ export class AppComponent implements OnDestroy {
   user$ = this.authService.user$;
   private sub = new Subscription();
   hideTopbar = false;
+  showBottomNav = false;
 
   constructor(private authService: AuthService, private stompService: StompService, private router: Router) {
     this.sub.add(
       this.authService.user$.subscribe((user) => {
         const token = this.authService.getToken();
+        this.showBottomNav = !!token;
         if (user && token) {
           this.stompService.connect(token);
         } else {

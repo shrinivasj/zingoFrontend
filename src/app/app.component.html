@@ -22,7 +22,7 @@
   <router-outlet></router-outlet>
 </div>
 
-<nav class="bottom-nav" *ngIf="user$ | async">
+<nav class="bottom-nav" *ngIf="showBottomNav">
   <a routerLink="/dashboard" routerLinkActive="active">
     <span class="material-icons">home</span>
     <span>Dashboard</span>
