@@ -1,0 +1,42 @@
+<mat-toolbar *ngIf="!hideTopbar" class="topbar" color="primary">
+  <div class="brand" routerLink="/dashboard">
+    <span class="logo">Zingo</span>
+    <span class="tagline">Go together to events</span>
+  </div>
+  <span class="spacer"></span>
+  <ng-container *ngIf="user$ | async as user; else guest">
+    <a mat-button routerLink="/dashboard">Dashboard</a>
+    <a mat-button routerLink="/chats">Chats</a>
+    <a mat-button routerLink="/notifications">Notifications</a>
+    <a mat-button routerLink="/profile">Profile</a>
+    <span class="user-pill">{{ user.displayName }}</span>
+    <button mat-stroked-button (click)="logout()">Log out</button>
+  </ng-container>
+  <ng-template #guest>
+    <a mat-stroked-button routerLink="/login">Login</a>
+    <a mat-flat-button routerLink="/register">Register</a>
+  </ng-template>
+</mat-toolbar>
+
+<div class="app-shell">
+  <router-outlet></router-outlet>
+</div>
+
+<nav class="bottom-nav" *ngIf="user$ | async">
+  <a routerLink="/dashboard" routerLinkActive="active">
+    <span class="material-icons">home</span>
+    <span>Dashboard</span>
+  </a>
+  <a routerLink="/chats" routerLinkActive="active">
+    <span class="material-icons">chat_bubble_outline</span>
+    <span>Chats</span>
+  </a>
+  <a routerLink="/notifications" routerLinkActive="active">
+    <span class="material-icons">notifications_none</span>
+    <span>Notifications</span>
+  </a>
+  <a routerLink="/profile" routerLinkActive="active">
+    <span class="material-icons">person_outline</span>
+    <span>Profile</span>
+  </a>
+</nav>
