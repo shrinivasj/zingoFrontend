@@ -1,8 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { Conversation } from '../core/models';
+import { Conversation, Message, NotificationItem } from '../core/models';
+import { StompService } from '../core/stomp.service';
+import { StompSubscription } from '@stomp/stompjs';
 
 @Component({
   selector: 'app-chats',
@@ -118,13 +120,66 @@ import { Conversation } from '../core/models';
     `
   ]
 })
-export class ChatsComponent implements OnInit {
+export class ChatsComponent implements OnInit, OnDestroy {
   conversations: Conversation[] = [];
+  private chatSubs = new Map<number, StompSubscription>();
+  private notifSub?: StompSubscription;
 
-  constructor(private api: ApiService) {}
+  constructor(private api: ApiService, private stomp: StompService) {}
 
   ngOnInit() {
-    this.api.getConversations().subscribe((data) => (this.conversations = data));
+    this.load();
+    const notifSub = this.stomp.subscribe('/user/queue/notifications', (message) => {
+      const payload = JSON.parse(message.body) as NotificationItem;
+      if (payload.type === 'INVITE' || payload.type === 'SYSTEM') {
+        this.load();
+      }
+    });
+    if (notifSub) this.notifSub = notifSub;
+  }
+
+  ngOnDestroy() {
+    this.notifSub?.unsubscribe();
+    this.chatSubs.forEach((sub) => sub.unsubscribe());
+    this.chatSubs.clear();
+  }
+
+  load() {
+    this.api.getConversations().subscribe((data) => {
+      this.conversations = data;
+      this.syncSubscriptions();
+    });
+  }
+
+  private syncSubscriptions() {
+    const ids = new Set(this.conversations.map((c) => c.id));
+    this.conversations.forEach((convo) => {
+      if (this.chatSubs.has(convo.id)) return;
+      const sub = this.stomp.subscribe(`/topic/chat.${convo.id}`, (message) => {
+        const payload = JSON.parse(message.body) as Message;
+        this.bumpConversation(payload);
+      });
+      if (sub) {
+        this.chatSubs.set(convo.id, sub);
+      }
+    });
+    Array.from(this.chatSubs.keys()).forEach((id) => {
+      if (!ids.has(id)) {
+        this.chatSubs.get(id)?.unsubscribe();
+        this.chatSubs.delete(id);
+      }
+    });
+  }
+
+  private bumpConversation(message: Message) {
+    const index = this.conversations.findIndex((c) => c.id === message.conversationId);
+    if (index < 0) return;
+    const updated = {
+      ...this.conversations[index],
+      lastMessageText: message.text,
+      lastMessageAt: message.createdAt
+    };
+    this.conversations = [updated, ...this.conversations.filter((c) => c.id !== message.conversationId)];
   }
 
   nameFor(convo: Conversation) {
