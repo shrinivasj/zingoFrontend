@@ -17,7 +17,7 @@ import {
   Venue
 } from './models';
 
-const API_BASE = 'https://zingo-bv09.onrender.com/api';
+const API_BASE = 'http://localhost:8080/api';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -51,23 +51,38 @@ export class ApiService {
     return this.http.get<City[]>(`${API_BASE}/cities`);
   }
 
-  getVenues(cityId?: number): Observable<Venue[]> {
+  getVenues(cityId?: number, cityName?: string, postalCode?: string): Observable<Venue[]> {
     let params = new HttpParams();
     if (cityId) {
       params = params.set('cityId', String(cityId));
+    }
+    if (cityName) {
+      params = params.set('city', cityName);
+    }
+    if (postalCode) {
+      params = params.set('postalCode', postalCode);
     }
     return this.http.get<Venue[]>(`${API_BASE}/venues`, { params });
   }
 
-  getEvents(cityId?: number): Observable<EventItem[]> {
+  getEvents(cityId?: number, cityName?: string, postalCode?: string, type?: EventItem['type']): Observable<EventItem[]> {
     let params = new HttpParams();
     if (cityId) {
       params = params.set('cityId', String(cityId));
     }
+    if (cityName) {
+      params = params.set('city', cityName);
+    }
+    if (postalCode) {
+      params = params.set('postalCode', postalCode);
+    }
+    if (type) {
+      params = params.set('type', type);
+    }
     return this.http.get<EventItem[]>(`${API_BASE}/events`, { params });
   }
 
-  getShowtimes(eventId?: number, venueId?: number): Observable<Showtime[]> {
+  getShowtimes(eventId?: number, venueId?: number, cityName?: string, postalCode?: string): Observable<Showtime[]> {
     let params = new HttpParams();
     if (eventId) {
       params = params.set('eventId', String(eventId));
@@ -75,7 +90,17 @@ export class ApiService {
     if (venueId) {
       params = params.set('venueId', String(venueId));
     }
+    if (cityName) {
+      params = params.set('city', cityName);
+    }
+    if (postalCode) {
+      params = params.set('postalCode', postalCode);
+    }
     return this.http.get<Showtime[]>(`${API_BASE}/showtimes`, { params });
+  }
+
+  syncScrape(postalCode: string, cityName?: string, days?: number) {
+    return this.http.post(`${API_BASE}/scrape/sync`, { postalCode, cityName, days });
   }
 
   joinLobby(showtimeId: number) {

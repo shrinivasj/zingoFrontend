@@ -2,46 +2,30 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject, tap } from 'rxjs';
 import { ApiService } from './api.service';
 import { User } from './models';
+import { TokenService } from './token.service';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly tokenKey = 'zingo_token';
-  private tokenCache: string | null = null;
   private readonly userSubject = new BehaviorSubject<User | null>(null);
   readonly user$ = this.userSubject.asObservable();
 
-  constructor(private api: ApiService) {
-    const token = this.getToken();
+  constructor(private api: ApiService, private tokenService: TokenService) {
+    const token = this.tokenService.getToken();
     if (token) {
       this.loadMe().subscribe();
     }
   }
 
   getToken(): string | null {
-    if (this.tokenCache) return this.tokenCache;
-    try {
-      return localStorage.getItem(this.tokenKey);
-    } catch {
-      return null;
-    }
+    return this.tokenService.getToken();
   }
 
   setToken(token: string) {
-    this.tokenCache = token;
-    try {
-      localStorage.setItem(this.tokenKey, token);
-    } catch {
-      // ignore storage errors (private mode, blocked storage)
-    }
+    this.tokenService.setToken(token);
   }
 
   clearToken() {
-    this.tokenCache = null;
-    try {
-      localStorage.removeItem(this.tokenKey);
-    } catch {
-      // ignore
-    }
+    this.tokenService.clearToken();
   }
 
   login(email: string, password: string) {

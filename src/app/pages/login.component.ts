@@ -21,9 +21,7 @@ import { AuthService } from '../core/auth.service';
   template: `
     <div class="auth-shell">
       <div class="auth-card">
-        <div class="logo">Z</div>
-        <h1>Welcome</h1>
-        <p class="subtitle">Go together. No pressure.</p>
+        <img class="logo" src="assets/aurofly-logo.png" alt="aurofly" />
         <form [formGroup]="form" (ngSubmit)="submit()">
           <mat-form-field appearance="outline" class="field">
             <mat-label>Email</mat-label>
@@ -62,32 +60,35 @@ import { AuthService } from '../core/auth.service';
         width: min(360px, 100%);
         display: grid;
         gap: 18px;
+        padding: 32px 26px 28px;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        box-shadow: 0 24px 60px rgba(224, 30, 90, 0.15);
+        justify-items: center;
+        text-align: center;
+      }
+      .auth-card form,
+      .auth-card .divider,
+      .auth-card .google-btn,
+      .auth-card .muted {
+        width: 100%;
+        text-align: left;
+      }
+      .auth-card .muted {
+        text-align: center;
       }
       form {
         display: grid;
         gap: 12px;
       }
-      h1 {
-        margin: 0;
-        font-size: 38px;
-        color: #111;
-        font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-      }
       .logo {
-        width: 84px;
-        height: 84px;
-        border-radius: 22px;
-        background: #ff4d4f;
-        color: #fff;
-        display: grid;
-        place-items: center;
-        font-size: 40px;
-        font-weight: 700;
-      }
-      .subtitle {
-        margin: 0;
-        color: #6a6a6a;
-        font-size: 18px;
+        height: 156px;
+        width: auto;
+        max-width: 320px;
+        display: block;
+        margin-bottom: 6px;
+        filter: drop-shadow(0 10px 24px rgba(224, 30, 90, 0.2));
       }
       .field {
         background: #fff;
@@ -127,7 +128,7 @@ import { AuthService } from '../core/auth.service';
         width: 100%;
         padding: 16px;
         border-radius: 18px;
-        border: 2px solid #111;
+        border: 1.5px solid #111;
         background: #fff;
         font-weight: 600;
         display: flex;
@@ -135,16 +136,48 @@ import { AuthService } from '../core/auth.service';
         justify-content: center;
         gap: 12px;
         cursor: pointer;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
       }
       .g {
         width: 28px;
         height: 28px;
         border-radius: 50%;
-        background: #fff;
+        background: #f5f5f5;
         display: grid;
         place-items: center;
         font-weight: 700;
         color: #4285f4;
+      }
+
+      .auth-shell {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .auth-shell::before,
+      .auth-shell::after {
+        content: '';
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(0);
+        opacity: 0.35;
+        pointer-events: none;
+      }
+
+      .auth-shell::before {
+        width: 240px;
+        height: 240px;
+        background: radial-gradient(circle, rgba(255, 77, 79, 0.25), transparent 70%);
+        top: -60px;
+        left: -80px;
+      }
+
+      .auth-shell::after {
+        width: 280px;
+        height: 280px;
+        background: radial-gradient(circle, rgba(255, 142, 58, 0.25), transparent 70%);
+        bottom: -120px;
+        right: -80px;
       }
 
       :host ::ng-deep .mdc-text-field--outlined {

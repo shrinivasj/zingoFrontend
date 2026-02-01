@@ -23,7 +23,7 @@ import { AuthService } from '../core/auth.service';
   template: `
     <div class="auth-shell">
       <mat-card class="auth-card">
-        <h1>Create your Zingo profile</h1>
+        <h1>Create your aurofly profile</h1>
         <p class="muted">No swipes. No rankings. Just real people going together.</p>
         <form [formGroup]="form" (ngSubmit)="submit()">
           <mat-form-field appearance="outline">
@@ -39,7 +39,7 @@ import { AuthService } from '../core/auth.service';
             <input matInput formControlName="password" type="password" />
           </mat-form-field>
           <button mat-flat-button color="primary" type="submit" [disabled]="form.invalid || loading">
-            Join Zingo
+            Join aurofly
           </button>
         </form>
         <p class="muted">Already have an account? <a routerLink="/login">Log in</a></p>

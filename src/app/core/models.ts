@@ -28,7 +28,7 @@ export interface Venue {
 
 export interface EventItem {
   id: number;
-  type: 'MOVIE' | 'PLAY' | 'CONCERT';
+  type: 'MOVIE' | 'PLAY' | 'CONCERT' | 'COMEDY' | 'SPORTS' | 'WORKSHOP' | 'EXHIBITION' | 'FESTIVAL' | 'KIDS' | 'OTHER';
   title: string;
   posterUrl?: string | null;
 }
@@ -38,7 +38,7 @@ export interface Showtime {
   eventId: number;
   venueId: number;
   startsAt: string;
-  format: 'TWO_D' | 'THREE_D' | 'IMAX';
+  format: 'TWO_D' | 'THREE_D' | 'IMAX' | 'GENERAL';
 }
 
 export interface LobbyUser {

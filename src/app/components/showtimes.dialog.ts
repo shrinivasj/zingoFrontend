@@ -55,6 +55,8 @@ interface ShowtimesDialogData {
       .sheet {
         display: grid;
         background: #ffffff;
+        max-height: 90vh;
+        overflow: hidden;
       }
       .hero {
         position: relative;
@@ -93,6 +95,7 @@ interface ShowtimesDialogData {
         padding: 20px 24px 28px;
         display: grid;
         gap: 12px;
+        min-height: 0;
       }
       .title {
         margin: 0;
@@ -108,6 +111,9 @@ interface ShowtimesDialogData {
         display: grid;
         gap: 16px;
         margin-top: 4px;
+        max-height: 45vh;
+        overflow: auto;
+        padding-right: 4px;
       }
       .showtime-card {
         border: 1px solid #e3e3e3;
