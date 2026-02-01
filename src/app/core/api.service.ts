@@ -17,7 +17,7 @@ import {
   Venue
 } from './models';
 
-const API_BASE = 'http://localhost:8080/api';
+const API_BASE = 'https://zingo-bv09.onrender.com/api';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
