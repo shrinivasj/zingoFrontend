@@ -21,12 +21,13 @@ export class AppComponent implements OnDestroy {
   private sub = new Subscription();
   hideTopbar = false;
   showBottomNav = false;
+  private currentUrl = '';
 
   constructor(private authService: AuthService, private stompService: StompService, private router: Router) {
     this.sub.add(
       this.authService.user$.subscribe((user) => {
         const token = this.authService.getToken();
-        this.showBottomNav = !!token;
+        this.updateBottomNav(token, this.currentUrl);
         if (user && token) {
           this.stompService.connect(token);
         } else {
@@ -38,6 +39,7 @@ export class AppComponent implements OnDestroy {
     this.sub.add(
       this.router.events.pipe(filter((event) => event instanceof NavigationEnd)).subscribe((event) => {
         const url = (event as NavigationEnd).urlAfterRedirects;
+        this.currentUrl = url;
         this.hideTopbar =
           url.startsWith('/login') ||
           url.startsWith('/register') ||
@@ -48,6 +50,7 @@ export class AppComponent implements OnDestroy {
           url.startsWith('/profile') ||
           url.startsWith('/lobby') ||
           url.startsWith('/chat');
+        this.updateBottomNav(this.authService.getToken(), url);
       })
     );
   }
@@ -59,5 +62,10 @@ export class AppComponent implements OnDestroy {
 
   ngOnDestroy() {
     this.sub.unsubscribe();
+  }
+
+  private updateBottomNav(token: string | null, url: string) {
+    const hideForAuthScreens = url.startsWith('/login') || url.startsWith('/register');
+    this.showBottomNav = !!token && !hideForAuthScreens;
   }
 }

@@ -162,7 +162,7 @@ export class NotificationsComponent implements OnInit, OnDestroy {
   }
 
   eventTitle(note: NotificationItem) {
-    return note.payload?.['eventTitle'] || 'The Silent Observer';
+    return note.payload?.['eventTitle'] || note.payload?.['title'] || 'Movie invite';
   }
 
   accept(note: NotificationItem) {
@@ -193,6 +193,9 @@ export class NotificationsComponent implements OnInit, OnDestroy {
   whenText(note: NotificationItem) {
     const value = note.payload?.['startsAt'] || note.createdAt;
     const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return 'Time not available';
+    }
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());

@@ -1,7 +1,9 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { AuthService } from '../core/auth.service';
 import { Profile } from '../core/models';
 
 @Component({
@@ -66,7 +68,10 @@ import { Profile } from '../core/models';
         </div>
       </div>
 
-      <button class="save-btn" (click)="save()">Save profile</button>
+      <div class="actions">
+        <button class="save-btn" (click)="save()">Save profile</button>
+        <button class="logout-btn" (click)="logout()">Log out</button>
+      </div>
     </section>
   `,
   styles: [
@@ -168,6 +173,19 @@ import { Profile } from '../core/models';
         border-radius: 16px;
         cursor: pointer;
       }
+      .actions {
+        display: grid;
+        gap: 12px;
+      }
+      .logout-btn {
+        border: 1px solid #e0e0e0;
+        background: #ffffff;
+        color: #1a1a1a;
+        font-weight: 600;
+        padding: 12px 16px;
+        border-radius: 16px;
+        cursor: pointer;
+      }
     `
   ]
 })
@@ -182,14 +200,14 @@ export class SettingsComponent implements OnInit {
     bioShort: ''
   };
 
-  constructor(private api: ApiService) {}
+  constructor(private api: ApiService, private auth: AuthService, private router: Router) {}
 
   ngOnInit() {
     this.api.getProfile().subscribe((profile) => {
       this.profile = profile;
       this.selectedTags = profile.personalityTags ? [...profile.personalityTags] : [];
       this.form.displayName = profile.displayName || '';
-        this.form.avatarUrl = profile.avatarUrl || '';
+      this.form.avatarUrl = profile.avatarUrl || '';
       this.form.bioShort = profile.bioShort || '';
     });
     this.api.blockedUsers().subscribe((users) => (this.blocked = users));
@@ -216,16 +234,27 @@ export class SettingsComponent implements OnInit {
       });
   }
 
+  logout() {
+    this.auth.logout();
+    this.router.navigateByUrl('/login');
+  }
+
   onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      this.form.avatarUrl = result;
-    };
-    reader.readAsDataURL(file);
+    this.toCompressedDataUrl(file, 320, 0.72)
+      .then((dataUrl) => {
+        this.form.avatarUrl = dataUrl;
+      })
+      .catch(() => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          this.form.avatarUrl = result;
+        };
+        reader.readAsDataURL(file);
+      });
   }
 
   initials(name: string) {
@@ -236,5 +265,44 @@ export class SettingsComponent implements OnInit {
       .join('')
       .slice(0, 2)
       .toUpperCase();
+  }
+
+  private toCompressedDataUrl(file: File, maxSide: number, quality: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.onload = () => {
+        const src = typeof reader.result === 'string' ? reader.result : '';
+        if (!src) {
+          reject(new Error('Invalid image data'));
+          return;
+        }
+        const image = new Image();
+        image.onerror = () => reject(new Error('Failed to load image'));
+        image.onload = () => {
+          const longestSide = Math.max(image.width, image.height);
+          const scale = longestSide > maxSide ? maxSide / longestSide : 1;
+          const width = Math.max(1, Math.round(image.width * scale));
+          const height = Math.max(1, Math.round(image.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Canvas context unavailable'));
+            return;
+          }
+          ctx.drawImage(image, 0, 0, width, height);
+
+          const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+          const dataUrl = outputType === 'image/png'
+            ? canvas.toDataURL(outputType)
+            : canvas.toDataURL(outputType, quality);
+          resolve(dataUrl);
+        };
+        image.src = src;
+      };
+      reader.readAsDataURL(file);
+    });
   }
 }

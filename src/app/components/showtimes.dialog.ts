@@ -61,7 +61,7 @@ interface ShowtimesDialogData {
       .hero {
         position: relative;
         padding: 24px 24px 20px;
-        background: #f2f2f2;
+        background: linear-gradient(180deg, rgba(244, 162, 97, 0.35), rgba(244, 162, 97, 0.15));
         display: grid;
         place-items: center;
       }
@@ -69,7 +69,7 @@ interface ShowtimesDialogData {
         width: 160px;
         height: 200px;
         border-radius: 18px;
-        background: #d9d9d9;
+        background: rgba(244, 162, 97, 0.45);
         background-size: cover;
         background-position: center;
       }

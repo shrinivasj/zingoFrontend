@@ -1,10 +1,12 @@
-import { Component } from '@angular/core';
+import { Component, HostBinding, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { Subject, takeUntil } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 
 @Component({
@@ -16,24 +18,41 @@ import { AuthService } from '../core/auth.service';
     RouterLink,
     MatFormFieldModule,
     MatInputModule,
-    MatButtonModule
+    MatButtonModule,
+    MatIconModule
   ],
   template: `
-    <div class="auth-shell">
+    <div class="auth-shell" *ngIf="!isAuthenticated">
       <div class="auth-card">
         <img class="logo" src="assets/aurofly-logo.png" alt="aurofly" />
         <form [formGroup]="form" (ngSubmit)="submit()">
           <mat-form-field appearance="outline" class="field">
             <mat-label>Email</mat-label>
-            <input matInput formControlName="email" type="email" />
+            <input matInput formControlName="email" type="email" name="email" autocomplete="email" />
           </mat-form-field>
           <mat-form-field appearance="outline" class="field">
             <mat-label>Password</mat-label>
-            <input matInput formControlName="password" type="password" />
+            <input
+              matInput
+              formControlName="password"
+              [type]="showPassword ? 'text' : 'password'"
+              name="password"
+              autocomplete="current-password"
+            />
+            <button
+              mat-icon-button
+              matSuffix
+              type="button"
+              aria-label="Toggle password visibility"
+              (click)="togglePassword()"
+            >
+              <mat-icon>{{ showPassword ? 'visibility_off' : 'visibility' }}</mat-icon>
+            </button>
           </mat-form-field>
           <button class="cta" type="submit" [disabled]="form.invalid || loading">
             Login
           </button>
+          <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
         </form>
         <div class="divider">
           <span>or</span>
@@ -48,13 +67,23 @@ import { AuthService } from '../core/auth.service';
   `,
   styles: [
     `
+      :host {
+        display: block;
+        height: 100vh;
+        overflow: hidden;
+      }
+      :host.hidden {
+        display: none;
+      }
       .auth-shell {
-        min-height: 100vh;
+        height: 100%;
         display: flex;
         justify-content: center;
         align-items: center;
-        padding: 48px 20px;
+        padding: 32px 20px;
         background: #ffffff;
+        box-sizing: border-box;
+        overflow: hidden;
       }
       .auth-card {
         width: min(360px, 100%);
@@ -109,6 +138,11 @@ import { AuthService } from '../core/auth.service';
       .cta:disabled {
         opacity: 0.6;
         cursor: not-allowed;
+      }
+      .error {
+        margin: 4px 0 0;
+        color: #d92d20;
+        font-size: 13px;
       }
       .divider {
         display: grid;
@@ -196,27 +230,63 @@ import { AuthService } from '../core/auth.service';
     `
   ]
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit, OnDestroy {
   loading = false;
+  showPassword = false;
+  errorMessage = '';
+  isAuthenticated = false;
+  @HostBinding('class.hidden') hostHidden = false;
+  private destroy$ = new Subject<void>();
   form = this.fb.group({
     email: ['', [Validators.required, Validators.email]],
-    password: ['', [Validators.required, Validators.minLength(6)]]
+    password: ['', [Validators.required]]
   });
 
   constructor(private fb: FormBuilder, private auth: AuthService, private router: Router) {}
 
+  ngOnInit() {
+    this.isAuthenticated = !!this.auth.getToken();
+    this.hostHidden = this.isAuthenticated;
+    if (this.isAuthenticated) {
+      this.router.navigateByUrl('/dashboard', { replaceUrl: true });
+    }
+
+    this.auth.user$.pipe(takeUntil(this.destroy$)).subscribe((user) => {
+      this.isAuthenticated = !!user || !!this.auth.getToken();
+      this.hostHidden = this.isAuthenticated;
+    });
+  }
+
   submit() {
-    if (this.form.invalid) return;
+    this.errorMessage = '';
+    const email = (this.form.value.email ?? '').trim();
+    const password = (this.form.value.password ?? '').trim();
+    this.form.patchValue({ email, password }, { emitEvent: false });
+    if (this.form.invalid) {
+      this.form.markAllAsTouched();
+      return;
+    }
     this.loading = true;
-    const { email, password } = this.form.value;
     this.auth.login(email!, password!).subscribe({
       next: () => {
         this.loading = false;
+        this.isAuthenticated = true;
+        this.hostHidden = true;
         this.router.navigate(['/dashboard']);
       },
-      error: () => {
+      error: (err) => {
         this.loading = false;
+        this.errorMessage = err?.error?.message || 'Login failed. Please try again.';
       }
     });
+  }
+
+  togglePassword() {
+    this.showPassword = !this.showPassword;
+  }
+
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 }

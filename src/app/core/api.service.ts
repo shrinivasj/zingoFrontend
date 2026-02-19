@@ -10,6 +10,7 @@ import {
   InviteAcceptResponse,
   LobbyUsersResponse,
   Message,
+  MovieSyncResponse,
   NotificationItem,
   Profile,
   Showtime,
@@ -18,6 +19,7 @@ import {
 } from './models';
 
 const API_BASE = 'https://zingo-bv09.onrender.com/api';
+//const API_BASE = 'http://192.168.1.8:8080/api';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -99,8 +101,13 @@ export class ApiService {
     return this.http.get<Showtime[]>(`${API_BASE}/showtimes`, { params });
   }
 
-  syncScrape(postalCode: string, cityName?: string, days?: number) {
-    return this.http.post(`${API_BASE}/scrape/sync`, { postalCode, cityName, days });
+  syncMovies(postalCode?: string, cityName?: string, days?: number): Observable<MovieSyncResponse> {
+    return this.http.post<MovieSyncResponse>(`${API_BASE}/movies/sync`, { postalCode, cityName, days });
+  }
+
+  // Backward-compatible alias for older callers.
+  syncScrape(postalCode?: string, cityName?: string, days?: number): Observable<MovieSyncResponse> {
+    return this.syncMovies(postalCode, cityName, days);
   }
 
   joinLobby(showtimeId: number) {
@@ -109,6 +116,10 @@ export class ApiService {
 
   heartbeat(showtimeId: number) {
     return this.http.post(`${API_BASE}/lobbies/heartbeat`, { showtimeId });
+  }
+
+  leaveLobby(showtimeId: number) {
+    return this.http.post(`${API_BASE}/lobbies/leave`, { showtimeId });
   }
 
   lobbyUsers(showtimeId: number, page = 0, size = 24): Observable<LobbyUsersResponse> {

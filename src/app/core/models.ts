@@ -11,6 +11,7 @@ export interface Profile {
   userId: number;
   displayName: string;
   avatarUrl?: string | null;
+  e2eePublicKey?: string | null;
   bioShort?: string | null;
   personalityTags?: string[] | null;
 }
@@ -85,8 +86,10 @@ export interface Conversation {
   venueName?: string | null;
   startsAt?: string | null;
   memberIds: number[];
+  otherUserId?: number | null;
   otherUserName?: string | null;
   otherUserAvatarUrl?: string | null;
+  otherUserE2eePublicKey?: string | null;
   lastMessageText?: string | null;
   lastMessageAt?: string | null;
 }
@@ -102,3 +105,13 @@ export interface Message {
 export interface IcebreakerResponse {
   suggestions: string[];
 }
+
+export interface MovieSyncResponse {
+  postalCode?: string | null;
+  cityName?: string | null;
+  venuesUpserted: number;
+  eventsUpserted: number;
+  showtimesUpserted: number;
+}
+
+export type ScrapeSyncResponse = MovieSyncResponse;

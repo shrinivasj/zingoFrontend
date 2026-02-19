@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -6,6 +6,9 @@ import { ApiService } from '../core/api.service';
 import { Conversation, Message } from '../core/models';
 import { StompService } from '../core/stomp.service';
 import { StompSubscription } from '@stomp/stompjs';
+import { AuthService } from '../core/auth.service';
+import { E2eeService } from '../core/e2ee.service';
+import { firstValueFrom } from 'rxjs';
 
 @Component({
   selector: 'app-chat',
@@ -26,12 +29,14 @@ import { StompSubscription } from '@stomp/stompjs';
         </div>
       </header>
 
-      <div class="messages">
+      <div class="messages" #messagesList (scroll)="onMessagesScroll()">
         <div class="message" *ngFor="let msg of messages">
           <div class="bubble" [class.self]="msg.senderId === currentUserId">{{ msg.text }}</div>
           <div class="time" [class.self]="msg.senderId === currentUserId">{{ timeLabel(msg.createdAt) }}</div>
         </div>
       </div>
+
+      <p class="secure-note" [class.error]="!secureReady">{{ secureMessage }}</p>
 
       <div class="icebreakers" *ngIf="icebreakers.length">
         <button class="chip" *ngFor="let suggestion of icebreakers" (click)="useIcebreaker(suggestion)">
@@ -41,7 +46,7 @@ import { StompSubscription } from '@stomp/stompjs';
 
       <form class="composer" [formGroup]="form" (ngSubmit)="send()">
         <input class="input" placeholder="Type a message..." formControlName="text" />
-        <button class="send" type="submit" [disabled]="form.invalid">➤</button>
+        <button class="send" type="submit" [disabled]="form.invalid || !secureReady">➤</button>
       </form>
     </section>
   `,
@@ -131,6 +136,16 @@ import { StompSubscription } from '@stomp/stompjs';
         padding: 10px 16px;
         overflow-x: auto;
       }
+      .secure-note {
+        margin: 0;
+        padding: 4px 16px;
+        color: #0f7b36;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .secure-note.error {
+        color: #b42318;
+      }
       .chip {
         border-radius: 999px;
         padding: 10px 16px;
@@ -174,6 +189,11 @@ export class ChatComponent implements OnInit, OnDestroy {
   subscription?: StompSubscription | null;
   avatarUrl = '';
   displayName = '';
+  secureReady = false;
+  secureMessage = 'Setting up end-to-end encryption...';
+  private otherUserPublicKey: string | null = null;
+  @ViewChild('messagesList') private messagesList?: ElementRef<HTMLDivElement>;
+  private stickToBottom = true;
 
   form = this.fb.group({
     text: ['', [Validators.required, Validators.maxLength(1000)]]
@@ -184,46 +204,44 @@ export class ChatComponent implements OnInit, OnDestroy {
     private api: ApiService,
     private stomp: StompService,
     private fb: FormBuilder,
-    private router: Router
+    private router: Router,
+    private auth: AuthService,
+    private e2ee: E2eeService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit() {
     this.conversationId = Number(this.route.snapshot.paramMap.get('conversationId'));
-    this.api.me().subscribe((user) => {
-      this.currentUserId = user.id;
-    });
-    this.api.getConversations().subscribe((convos) => {
-      this.conversation = convos.find((c) => c.id === this.conversationId);
-      if (this.conversation) {
-        this.displayName = this.conversation.otherUserName || 'Chat';
-        this.avatarUrl = this.conversation.otherUserAvatarUrl || '';
-      }
-      if (this.conversation?.showtimeId) {
-        this.api.getIcebreakers(this.conversation.showtimeId).subscribe((resp) => (this.icebreakers = resp.suggestions));
-      }
-    });
-    this.loadMessages();
-
     this.subscription = this.stomp.subscribe(`/topic/chat.${this.conversationId}`, (message) => {
       const payload = JSON.parse(message.body) as Message;
-      this.messages = [...this.messages, payload];
+      void this.handleIncoming(payload);
     });
+
+    this.bootstrap();
   }
 
   ngOnDestroy() {
     if (this.subscription) this.subscription.unsubscribe();
   }
 
-  loadMessages() {
-    this.api.getMessages(this.conversationId).subscribe((messages) => (this.messages = messages));
-  }
-
   send() {
-    if (this.form.invalid) return;
+    if (this.form.invalid || !this.secureReady || !this.otherUserPublicKey) return;
     const text = this.form.value.text!;
-    this.api.sendMessage(this.conversationId, text).subscribe(() => {
-      this.form.reset();
-    });
+    this.e2ee
+      .encryptForConversation(text, this.otherUserPublicKey, this.conversationId)
+      .then((cipherText) => {
+        this.api.sendMessage(this.conversationId, cipherText).subscribe({
+          next: (message) => {
+            this.form.reset();
+            void this.handleIncoming(message);
+          }
+        });
+      })
+      .catch(() => {
+        this.secureReady = false;
+        this.secureMessage = 'Unable to encrypt message. Refresh chat to re-establish secure channel.';
+        this.cdr.detectChanges();
+      });
   }
 
   useIcebreaker(text: string) {
@@ -258,5 +276,112 @@ export class ChatComponent implements OnInit, OnDestroy {
 
   goBack() {
     this.router.navigate(['/chats']);
+  }
+
+  onMessagesScroll() {
+    const el = this.messagesList?.nativeElement;
+    if (!el) return;
+    const threshold = 120;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    this.stickToBottom = distanceFromBottom <= threshold;
+  }
+
+  private scrollToBottomSoon() {
+    requestAnimationFrame(() => this.scrollToBottom());
+  }
+
+  private scrollToBottom() {
+    const el = this.messagesList?.nativeElement;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  private async bootstrap() {
+    try {
+      const cachedUser = this.auth.getCurrentUser();
+      if (cachedUser) {
+        this.currentUserId = cachedUser.id;
+      } else {
+        const me = await firstValueFrom(this.api.me());
+        this.currentUserId = me.id;
+      }
+
+      const [profile, conversations] = await Promise.all([
+        firstValueFrom(this.api.getProfile()),
+        firstValueFrom(this.api.getConversations())
+      ]);
+
+      this.conversation = conversations.find((c) => c.id === this.conversationId);
+      if (!this.conversation) {
+        this.secureReady = false;
+        this.secureMessage = 'Conversation not found.';
+        this.cdr.detectChanges();
+        return;
+      }
+
+      this.displayName = this.conversation.otherUserName || 'Chat';
+      this.avatarUrl = this.conversation.otherUserAvatarUrl || '';
+      this.otherUserPublicKey = this.conversation.otherUserE2eePublicKey || null;
+
+      const ownPublicKey = await this.e2ee.ensureLocalPublicKey();
+      if (profile.e2eePublicKey !== ownPublicKey) {
+        await firstValueFrom(this.api.updateProfile({ e2eePublicKey: ownPublicKey }));
+      }
+
+      if (!this.otherUserPublicKey) {
+        this.secureReady = false;
+        this.secureMessage = 'Waiting for the other user to enable secure chat.';
+      } else {
+        this.secureReady = true;
+        this.secureMessage = 'End-to-end encryption is active.';
+      }
+      this.cdr.detectChanges();
+
+      if (this.conversation.showtimeId) {
+        this.api.getIcebreakers(this.conversation.showtimeId).subscribe((resp) => (this.icebreakers = resp.suggestions));
+      }
+
+      await this.loadMessages();
+    } catch {
+      this.secureReady = false;
+      this.secureMessage = 'Failed to initialize secure chat.';
+      this.cdr.detectChanges();
+    }
+  }
+
+  private async loadMessages() {
+    const messages = await firstValueFrom(this.api.getMessages(this.conversationId));
+    const decoded = await Promise.all(messages.map((message) => this.decodeMessage(message)));
+    this.messages = decoded;
+    this.cdr.detectChanges();
+    this.stickToBottom = true;
+    this.scrollToBottomSoon();
+  }
+
+  private async handleIncoming(message: Message) {
+    if (this.messages.some((item) => item.id === message.id)) {
+      return;
+    }
+    const decoded = await this.decodeMessage(message);
+    this.messages = [...this.messages, decoded];
+    this.cdr.detectChanges();
+    if (this.stickToBottom) {
+      this.scrollToBottomSoon();
+    }
+  }
+
+  private async decodeMessage(message: Message): Promise<Message> {
+    if (!this.otherUserPublicKey) {
+      return {
+        ...message,
+        text: message.text.startsWith('enc:v1:') ? '[Encrypted message]' : message.text
+      };
+    }
+    try {
+      const text = await this.e2ee.decryptFromConversation(message.text, this.otherUserPublicKey, this.conversationId);
+      return { ...message, text };
+    } catch {
+      return { ...message, text: '[Unable to decrypt message]' };
+    }
   }
 }

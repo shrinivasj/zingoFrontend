@@ -8,11 +8,12 @@ import { NotificationsComponent } from './pages/notifications.component';
 import { ChatComponent } from './pages/chat.component';
 import { SettingsComponent } from './pages/settings.component';
 import { authGuard } from './core/auth.guard';
+import { guestGuard } from './core/guest.guard';
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
-  { path: 'login', component: LoginComponent },
-  { path: 'register', component: RegisterComponent },
+  { path: 'login', component: LoginComponent, canActivate: [guestGuard] },
+  { path: 'register', component: RegisterComponent, canActivate: [guestGuard] },
   { path: 'dashboard', component: DashboardComponent, canActivate: [authGuard] },
   { path: 'chats', component: ChatsComponent, canActivate: [authGuard] },
   { path: 'lobby/:showtimeId', component: LobbyComponent, canActivate: [authGuard] },

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { NavigationEnd, Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSelectModule } from '@angular/material/select';
@@ -9,17 +9,18 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { BehaviorSubject, combineLatest, Observable, Subject, of } from 'rxjs';
 import {
   catchError,
-  distinctUntilChanged,
+  finalize,
   map,
   shareReplay,
   startWith,
   switchMap,
   take,
   takeUntil,
+  timeout,
   tap
 } from 'rxjs/operators';
 import { ApiService } from '../core/api.service';
-import { City, EventItem, Showtime, Venue } from '../core/models';
+import { City, EventItem, MovieSyncResponse, Showtime, Venue } from '../core/models';
 import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
 
 @Component({
@@ -50,6 +51,33 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
       <h1>Pick a movie, find people to go together</h1>
       <p class="subtitle">Social-first. No swiping. Shared plans, shared seats.</p>
 
+      <div class="scrape-panel">
+        <label for="scrape-pincode">Refresh movie data</label>
+        <div class="scrape-row">
+          <input
+            id="scrape-pincode"
+            class="scrape-input"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            [value]="syncPostalCode"
+            (input)="onSyncPostalCodeInput($event)"
+            placeholder="Pincode (optional when city selected)"
+          />
+          <button class="scrape-btn" (click)="runMovieSync()" [disabled]="syncInProgress">
+            {{ syncInProgress ? 'Syncing...' : 'Sync Movies' }}
+          </button>
+        </div>
+        <p class="scrape-note">Source: MovieGlu API</p>
+        <p class="scrape-error" *ngIf="syncError">{{ syncError }}</p>
+        <p class="scrape-success" *ngIf="syncResult">
+          Synced {{ syncResult.cityName || 'city' }}:
+          venues {{ syncResult.venuesUpserted }},
+          events {{ syncResult.eventsUpserted }},
+          showtimes {{ syncResult.showtimesUpserted }}
+        </p>
+      </div>
+
       <div class="form">
         <label>City</label>
         <ng-container *ngIf="cities$ | async as cities; else cityLoading">
@@ -58,7 +86,7 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
               [value]="selectedCityId"
               (selectionChange)="onCityChange($event.value)"
               [disabled]="!cities.length"
-              [placeholder]="cities.length ? 'Select a city' : 'No cities available'"
+              [placeholder]="cities.length ? 'Select your favourite city' : 'No cities available'"
             >
               <mat-option *ngFor="let city of cities; trackBy: trackByCityId" [value]="city.id">{{ city.name }}</mat-option>
             </mat-select>
@@ -77,7 +105,7 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
               [value]="selectedVenueId"
               (selectionChange)="onVenueChange($event.value)"
               [disabled]="!venues.length"
-              [placeholder]="venues.length ? 'Select a theatre' : 'No theatres available'"
+              [placeholder]="venues.length ? 'Select your favorite theatre' : 'No theatres available'"
             >
               <mat-option *ngFor="let venue of venues; trackBy: trackByVenueId" [value]="venue.id">{{ venue.name }}</mat-option>
             </mat-select>
@@ -158,6 +186,58 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
         color: #6a6a6a;
         font-size: 16px;
       }
+      .scrape-panel {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 20px;
+        padding: 12px;
+        background: #fff;
+        border-radius: 16px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+      }
+      .scrape-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+      }
+      .scrape-input {
+        height: 42px;
+        border: 1px solid rgba(0, 0, 0, 0.16);
+        border-radius: 12px;
+        padding: 0 12px;
+        font-size: 14px;
+      }
+      .scrape-btn {
+        height: 42px;
+        border: none;
+        background: #111;
+        color: #fff;
+        padding: 0 14px;
+        border-radius: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .scrape-btn:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .scrape-note {
+        margin: 0;
+        color: #6a6a6a;
+        font-size: 12px;
+      }
+      .scrape-error {
+        margin: 0;
+        color: #b42318;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .scrape-success {
+        margin: 0;
+        color: #0f7b36;
+        font-size: 13px;
+        font-weight: 600;
+      }
       .form {
         display: grid;
         gap: 14px;
@@ -227,21 +307,24 @@ export class DashboardComponent implements OnInit, OnDestroy {
   selectedCityId?: number;
   selectedVenueId?: number;
   selectedEventId?: number;
+  syncPostalCode = '';
+  syncInProgress = false;
+  syncError = '';
+  syncResult: MovieSyncResponse | null = null;
 
   private destroy$ = new Subject<void>();
   private cityId$ = new BehaviorSubject<number | null>(null);
   private venueId$ = new BehaviorSubject<number | null>(null);
   private eventId$ = new BehaviorSubject<number | null>(null);
+  private reloadTick$ = new BehaviorSubject<number>(0);
   private venueShowtimesCache = new Map<number, Observable<Showtime[]>>();
+  private citiesSnapshot: City[] = [];
   private venuesSnapshot: Venue[] = [];
 
   cities$: Observable<City[]> = of([]);
 
-  readonly venues$ = this.cityId$.pipe(
-    distinctUntilChanged(),
-    switchMap((cityId) =>
-      cityId ? this.api.getVenues(cityId).pipe(catchError(() => of([]))) : of([])
-    ),
+  readonly venues$ = combineLatest([this.cityId$, this.reloadTick$]).pipe(
+    switchMap(([cityId]) => (cityId ? this.api.getVenues(cityId).pipe(catchError(() => of([]))) : of([]))),
     tap((venues) => {
       this.venuesSnapshot = venues;
       this.ensureVenueSelection(venues);
@@ -249,18 +332,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
     shareReplay({ bufferSize: 1, refCount: false })
   );
 
-  readonly events$ = this.cityId$.pipe(
-    distinctUntilChanged(),
-    switchMap((cityId) =>
-      cityId ? this.api.getEvents(cityId).pipe(catchError(() => of([]))) : of([])
-    ),
+  readonly events$ = combineLatest([this.cityId$, this.reloadTick$]).pipe(
+    switchMap(([cityId]) => (cityId ? this.api.getEvents(cityId).pipe(catchError(() => of([]))) : of([]))),
     tap((events) => this.ensureEventSelection(events)),
     shareReplay({ bufferSize: 1, refCount: false })
   );
 
-  readonly venueShowtimes$ = this.venueId$.pipe(
-    distinctUntilChanged(),
-    switchMap((venueId) => (venueId ? this.getVenueShowtimes$(venueId) : of([]))),
+  readonly venueShowtimes$ = combineLatest([this.venueId$, this.reloadTick$]).pipe(
+    switchMap(([venueId]) => (venueId ? this.getVenueShowtimes$(venueId) : of([]))),
     shareReplay({ bufferSize: 1, refCount: false })
   );
 
@@ -304,16 +383,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
   constructor(private api: ApiService, private router: Router, private dialog: MatDialog) {}
 
   ngOnInit() {
-    this.cities$ = this.api.getCities().pipe(
-      tap((cities) => {
-        if (!this.selectedCityId && cities.length) {
-          this.setCity(cities[0].id);
+    this.loadCities();
+    this.router.events
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (event instanceof NavigationEnd && event.urlAfterRedirects.startsWith('/dashboard')) {
+          this.loadCities();
         }
-      }),
-      catchError(() => of([])),
-      shareReplay({ bufferSize: 1, refCount: false })
-    );
-    this.cities$.pipe(takeUntil(this.destroy$)).subscribe();
+      });
   }
 
   ngOnDestroy() {
@@ -333,6 +410,50 @@ export class DashboardComponent implements OnInit, OnDestroy {
       return;
     }
     this.setVenue(venueId);
+  }
+
+  onSyncPostalCodeInput(event: Event) {
+    const input = event.target as HTMLInputElement | null;
+    const value = input?.value ?? '';
+    this.syncPostalCode = value.replace(/\D+/g, '').slice(0, 6);
+  }
+
+  runMovieSync() {
+    if (this.syncInProgress) {
+      return;
+    }
+    const postalCode = this.syncPostalCode.trim();
+    const selectedCity = this.citiesSnapshot.find((city) => city.id === this.selectedCityId);
+    const cityName = selectedCity?.name;
+
+    if (!postalCode && !cityName) {
+      this.syncResult = null;
+      this.syncError = 'Select a city or enter a pincode before syncing.';
+      return;
+    }
+
+    this.syncInProgress = true;
+    this.syncResult = null;
+    this.syncError = '';
+
+    this.api
+      .syncMovies(postalCode || undefined, cityName, 1)
+      .pipe(
+        timeout(45000),
+        take(1),
+        finalize(() => {
+          this.syncInProgress = false;
+        })
+      )
+      .subscribe({
+        next: (result) => {
+          this.syncResult = result;
+          this.refreshSyncedData();
+        },
+        error: (error: unknown) => {
+          this.syncError = this.parseSyncError(error);
+        }
+      });
   }
 
   openShowtimesFor(event: EventItem) {
@@ -372,6 +493,30 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.venuesSnapshot = [];
   }
 
+  private loadCities() {
+    this.cities$ = this.api.getCities().pipe(
+      tap((cities) => {
+        this.citiesSnapshot = cities;
+        this.ensureCitySelection(cities);
+      }),
+      catchError(() => of(this.citiesSnapshot)),
+      shareReplay({ bufferSize: 1, refCount: false })
+    );
+    this.cities$.pipe(take(1)).subscribe();
+  }
+
+  private ensureCitySelection(cities: City[]) {
+    if (!cities.length) {
+      this.selectedCityId = undefined;
+      this.cityId$.next(null);
+      return;
+    }
+    const exists = this.selectedCityId && cities.some((city) => city.id === this.selectedCityId);
+    if (!exists) {
+      this.setCity(cities[0].id);
+    }
+  }
+
   private setVenue(venueId: number) {
     this.selectedVenueId = venueId;
     this.venueId$.next(venueId);
@@ -390,7 +535,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
     const exists = this.selectedVenueId && venues.some((venue) => venue.id === this.selectedVenueId);
     if (!exists) {
-      this.setVenue(venues[0].id);
+      this.selectedVenueId = undefined;
+      this.venueId$.next(null);
     }
   }
 
@@ -402,7 +548,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
     const exists = this.selectedEventId && events.some((event) => event.id === this.selectedEventId);
     if (!exists) {
-      this.setEvent(events[0].id);
+      this.selectedEventId = undefined;
+      this.eventId$.next(null);
     }
   }
 
@@ -421,6 +568,30 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   private sortShowtimes(showtimes: Showtime[]) {
     return [...showtimes].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+  }
+
+  private refreshSyncedData() {
+    this.venueShowtimesCache.clear();
+    this.reloadTick$.next(this.reloadTick$.value + 1);
+  }
+
+  private parseSyncError(error: unknown): string {
+    if (typeof error === 'object' && error !== null && 'name' in error) {
+      const namedError = error as { name?: string };
+      if (namedError.name === 'TimeoutError') {
+        return 'Movie sync is taking too long. Try again with a city selected, or retry after a minute.';
+      }
+    }
+    if (typeof error === 'object' && error !== null) {
+      const response = error as { error?: { message?: string }; message?: string };
+      if (response.error?.message) {
+        return response.error.message;
+      }
+      if (response.message) {
+        return response.message;
+      }
+    }
+    return 'Movie sync failed. Please try again.';
   }
 
   private openShowtimesDialog(event: EventItem, showtimes: Showtime[]) {

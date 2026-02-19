@@ -248,6 +248,8 @@ export class LobbyComponent implements OnInit, OnDestroy {
   currentAvatarUrl = '';
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private subscription?: StompSubscription | null;
+  private refreshDebounceTimer?: ReturnType<typeof setTimeout>;
+  private refreshQueued = false;
 
   constructor(
     private route: ActivatedRoute,
@@ -259,6 +261,12 @@ export class LobbyComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.showtimeId = Number(this.route.snapshot.paramMap.get('showtimeId'));
+    this.subscription = this.stomp.subscribe(`/topic/lobby.${this.showtimeId}`, (message) => {
+      const payload = JSON.parse(message.body);
+      this.liveCount = payload.count ?? this.liveCount;
+      this.queueRefreshUsers();
+    });
+
     this.api.joinLobby(this.showtimeId).subscribe((update: any) => {
       this.liveCount = update.count ?? 0;
     });
@@ -267,15 +275,14 @@ export class LobbyComponent implements OnInit, OnDestroy {
     });
     this.refreshUsers();
     this.heartbeatTimer = setInterval(() => this.api.heartbeat(this.showtimeId).subscribe(), 30000);
-
-    this.subscription = this.stomp.subscribe(`/topic/lobby.${this.showtimeId}`, (message) => {
-      const payload = JSON.parse(message.body);
-      this.liveCount = payload.count ?? this.liveCount;
-    });
   }
 
   ngOnDestroy() {
+    if (this.showtimeId) {
+      this.api.leaveLobby(this.showtimeId).subscribe({ error: () => {} });
+    }
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.refreshDebounceTimer) clearTimeout(this.refreshDebounceTimer);
     if (this.subscription) this.subscription.unsubscribe();
   }
 
@@ -314,5 +321,16 @@ export class LobbyComponent implements OnInit, OnDestroy {
 
   goBack() {
     this.router.navigate(['/dashboard']);
+  }
+
+  private queueRefreshUsers() {
+    if (this.refreshQueued) {
+      return;
+    }
+    this.refreshQueued = true;
+    this.refreshDebounceTimer = setTimeout(() => {
+      this.refreshQueued = false;
+      this.refreshUsers();
+    }, 120);
   }
 }

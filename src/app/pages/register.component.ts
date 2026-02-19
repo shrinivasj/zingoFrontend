@@ -6,6 +6,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
 import { AuthService } from '../core/auth.service';
 
 @Component({
@@ -18,7 +19,8 @@ import { AuthService } from '../core/auth.service';
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
-    MatButtonModule
+    MatButtonModule,
+    MatIconModule
   ],
   template: `
     <div class="auth-shell">
@@ -36,7 +38,16 @@ import { AuthService } from '../core/auth.service';
           </mat-form-field>
           <mat-form-field appearance="outline">
             <mat-label>Password</mat-label>
-            <input matInput formControlName="password" type="password" />
+            <input matInput formControlName="password" [type]="showPassword ? 'text' : 'password'" />
+            <button
+              mat-icon-button
+              matSuffix
+              type="button"
+              aria-label="Toggle password visibility"
+              (click)="togglePassword()"
+            >
+              <mat-icon>{{ showPassword ? 'visibility_off' : 'visibility' }}</mat-icon>
+            </button>
           </mat-form-field>
           <button mat-flat-button color="primary" type="submit" [disabled]="form.invalid || loading">
             Join aurofly
@@ -48,10 +59,19 @@ import { AuthService } from '../core/auth.service';
   `,
   styles: [
     `
+      :host {
+        display: block;
+        height: 100vh;
+        overflow: hidden;
+      }
       .auth-shell {
+        height: 100%;
         display: flex;
         justify-content: center;
-        padding: 40px 16px;
+        align-items: center;
+        padding: 32px 16px;
+        box-sizing: border-box;
+        overflow: hidden;
       }
       .auth-card {
         width: min(420px, 100%);
@@ -74,6 +94,7 @@ import { AuthService } from '../core/auth.service';
 })
 export class RegisterComponent {
   loading = false;
+  showPassword = false;
   form = this.fb.group({
     displayName: ['', [Validators.required, Validators.maxLength(80)]],
     email: ['', [Validators.required, Validators.email]],
@@ -95,5 +116,9 @@ export class RegisterComponent {
         this.loading = false;
       }
     });
+  }
+
+  togglePassword() {
+    this.showPassword = !this.showPassword;
   }
 }

@@ -48,20 +48,22 @@ import { StompSubscription } from '@stomp/stompjs';
         background: #ffffff;
       }
       .chats-page {
-        padding: 22px 18px 36px;
+        padding: 28px 22px 36px;
       }
       h1 {
-        margin: 0 0 18px;
-        font-size: 34px;
+        margin: 0 0 22px;
+        font-size: 36px;
+        font-weight: 700;
+        letter-spacing: -0.2px;
       }
       .chat-list {
         display: grid;
-        gap: 22px;
+        gap: 26px;
       }
       .chat-row {
         display: grid;
-        grid-template-columns: 74px 1fr;
-        gap: 14px;
+        grid-template-columns: 72px 1fr;
+        gap: 16px;
         align-items: center;
         text-decoration: none;
         color: inherit;
@@ -81,38 +83,45 @@ import { StompSubscription } from '@stomp/stompjs';
       }
       .unread-dot {
         position: absolute;
-        width: 18px;
-        height: 18px;
+        width: 20px;
+        height: 20px;
         border-radius: 999px;
-        background: #fc5054;
+        background: #ff4d4f;
         border: 3px solid #ffffff;
-        top: -2px;
+        top: -4px;
         right: -2px;
       }
       .top-line {
         display: flex;
         align-items: baseline;
         justify-content: space-between;
-        gap: 10px;
+        gap: 12px;
       }
       .name {
         font-weight: 700;
         font-size: 22px;
+        color: #111111;
       }
       .time {
-        color: rgba(0, 0, 0, 0.45);
+        color: #9a9a9a;
         font-weight: 600;
+        font-size: 16px;
       }
       .movie {
         margin-top: 4px;
-        color: rgba(0, 0, 0, 0.6);
+        color: #7a7a7a;
         font-size: 18px;
         font-weight: 600;
       }
       .snippet {
         margin-top: 6px;
-        color: rgba(0, 0, 0, 0.55);
+        color: #6b6b6b;
         font-size: 18px;
+        font-weight: 600;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
       }
       .muted {
         color: rgba(0, 0, 0, 0.55);
