@@ -2,12 +2,14 @@ import { Injectable, NgZone } from '@angular/core';
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { BehaviorSubject } from 'rxjs';
+import { environment } from '../../environments/environment';
 
-const WS_URL = 'http://localhost:8080/ws';
+const WS_URL = `${environment.apiBase.replace(/\/api$/, '')}/ws`;
 
 @Injectable({ providedIn: 'root' })
 export class StompService {
   private client: Client | null = null;
+  private token: string | null = null;
   private connected = false;
   private connectedSubject = new BehaviorSubject<boolean>(false);
   readonly connected$ = this.connectedSubject.asObservable();
@@ -18,9 +20,17 @@ export class StompService {
   constructor(private ngZone: NgZone) {}
 
   connect(token: string) {
-    if (this.client?.active) {
+    if (this.client?.active && this.token === token) {
       return;
     }
+    if (this.client?.active && this.token !== token) {
+      this.client.deactivate();
+      this.client = null;
+      this.connected = false;
+      this.connectedSubject.next(false);
+      this.active.clear();
+    }
+    this.token = token;
     const client = new Client({
       webSocketFactory: () => new SockJS(`${WS_URL}?token=${token}`),
       reconnectDelay: 1000,
@@ -51,6 +61,7 @@ export class StompService {
     if (this.client) {
       this.client.deactivate();
       this.client = null;
+      this.token = null;
       this.connected = false;
       this.connectedSubject.next(false);
       this.active.clear();

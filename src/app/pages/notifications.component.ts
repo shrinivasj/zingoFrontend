@@ -1,6 +1,8 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { finalize } from 'rxjs/operators';
 import { ApiService } from '../core/api.service';
 import { NotificationItem } from '../core/models';
 import { StompService } from '../core/stomp.service';
@@ -9,7 +11,7 @@ import { StompSubscription } from '@stomp/stompjs';
 @Component({
   selector: 'app-notifications',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, MatSnackBarModule],
   template: `
     <section class="notifications-page">
       <h1>Notifications</h1>
@@ -34,9 +36,13 @@ import { StompSubscription } from '@stomp/stompjs';
             </div>
           </div>
 
-          <div class="actions" *ngIf="note.type === 'INVITE'">
-            <button class="btn accept" (click)="accept(note)">Accept</button>
-            <button class="btn pass" (click)="decline(note)">Pass</button>
+          <div class="actions" *ngIf="canRespond(note)">
+            <button class="btn accept" (click)="accept(note)" [disabled]="isBusy(note)">
+              {{ isBusy(note) ? 'Accepting...' : 'Accept' }}
+            </button>
+            <button class="btn pass" (click)="decline(note)" [disabled]="isBusy(note)">
+              {{ isBusy(note) ? 'Working...' : 'Pass' }}
+            </button>
           </div>
         </div>
       </div>
@@ -119,6 +125,10 @@ import { StompSubscription } from '@stomp/stompjs';
         font-weight: 600;
         cursor: pointer;
       }
+      .btn:disabled {
+        opacity: 0.7;
+        cursor: default;
+      }
       .btn.accept {
         background: #fc5054;
         color: #ffffff;
@@ -138,19 +148,26 @@ import { StompSubscription } from '@stomp/stompjs';
 export class NotificationsComponent implements OnInit, OnDestroy {
   notifications: NotificationItem[] = [];
   private subscription?: StompSubscription | null;
+  private busyNotificationIds = new Set<number>();
+  private hiddenNotificationIds = new Set<number>();
 
-  constructor(private api: ApiService, private router: Router, private stomp: StompService) {}
+  constructor(private api: ApiService, private router: Router, private stomp: StompService, private snackBar: MatSnackBar) {}
 
   ngOnInit() {
     this.load();
     this.subscription = this.stomp.subscribe('/user/queue/notifications', (message) => {
       const payload = JSON.parse(message.body) as NotificationItem;
+      if (this.hiddenNotificationIds.has(payload.id) || this.isClosedInvite(payload)) {
+        return;
+      }
       this.notifications = [payload, ...this.notifications];
     });
   }
 
   load() {
-    this.api.getNotifications().subscribe((items) => (this.notifications = items));
+    this.api.getNotifications().subscribe((items) => {
+      this.notifications = items.filter((item) => !this.hiddenNotificationIds.has(item.id) && !this.isClosedInvite(item));
+    });
   }
 
   fromName(note: NotificationItem) {
@@ -166,24 +183,51 @@ export class NotificationsComponent implements OnInit, OnDestroy {
   }
 
   accept(note: NotificationItem) {
-    const inviteId = note.payload?.['inviteId'];
-    if (!inviteId) return;
-    this.api.acceptInvite(inviteId).subscribe((resp) => {
-      this.api.markNotificationRead(note.id).subscribe();
-      if (resp.conversationId) {
-        this.router.navigate(['/chat', resp.conversationId]);
-      }
-      this.load();
-    });
+    if (this.isBusy(note)) return;
+    const inviteId = this.extractInviteId(note);
+    if (!inviteId) {
+      this.snackBar.open('This request cannot be processed (missing invite id).', 'Dismiss', { duration: 3500 });
+      return;
+    }
+    this.busyNotificationIds.add(note.id);
+    this.api
+      .acceptInvite(inviteId)
+      .pipe(finalize(() => this.busyNotificationIds.delete(note.id)))
+      .subscribe({
+        next: (resp) => {
+          this.markHandled(note);
+          if (resp.conversationId) {
+            this.router.navigate(['/chat', resp.conversationId]);
+            return;
+          }
+          this.load();
+        },
+        error: (error) => {
+          this.handleActionError(error, note);
+        }
+      });
   }
 
   decline(note: NotificationItem) {
-    const inviteId = note.payload?.['inviteId'];
-    if (!inviteId) return;
-    this.api.declineInvite(inviteId).subscribe(() => {
-      this.api.markNotificationRead(note.id).subscribe();
-      this.load();
-    });
+    if (this.isBusy(note)) return;
+    const inviteId = this.extractInviteId(note);
+    if (!inviteId) {
+      this.snackBar.open('This request cannot be processed (missing invite id).', 'Dismiss', { duration: 3500 });
+      return;
+    }
+    this.busyNotificationIds.add(note.id);
+    this.api
+      .declineInvite(inviteId)
+      .pipe(finalize(() => this.busyNotificationIds.delete(note.id)))
+      .subscribe({
+        next: () => {
+          this.markHandled(note);
+          this.load();
+        },
+        error: (error) => {
+          this.handleActionError(error, note);
+        }
+      });
   }
 
   format(value: string) {
@@ -214,6 +258,78 @@ export class NotificationsComponent implements OnInit, OnDestroy {
       .join('')
       .slice(0, 2)
       .toUpperCase();
+  }
+
+  isBusy(note: NotificationItem) {
+    return this.busyNotificationIds.has(note.id);
+  }
+
+  canRespond(note: NotificationItem) {
+    if (note.type !== 'INVITE' || !!note.readAt) {
+      return false;
+    }
+    const status = this.inviteStatus(note);
+    if (!status) {
+      return true;
+    }
+    return status === 'PENDING';
+  }
+
+  private extractInviteId(note: NotificationItem): number | null {
+    const raw = note.payload?.['inviteId'];
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return Math.trunc(raw);
+    }
+    if (typeof raw === 'string') {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        return Math.trunc(parsed);
+      }
+    }
+    return null;
+  }
+
+  private markHandled(note: NotificationItem) {
+    this.hiddenNotificationIds.add(note.id);
+    this.notifications = this.notifications.filter((item) => item.id !== note.id);
+    this.api.markNotificationRead(note.id).subscribe({ error: () => {} });
+  }
+
+  private isClosedInvite(note: NotificationItem) {
+    if (note.type !== 'INVITE') {
+      return false;
+    }
+    if (note.readAt) {
+      return true;
+    }
+    const status = this.inviteStatus(note);
+    if (!status) {
+      return false;
+    }
+    return status !== 'PENDING';
+  }
+
+  private inviteStatus(note: NotificationItem): string | null {
+    const statusValue = note.payload?.['inviteStatus'];
+    if (typeof statusValue !== 'string') {
+      return null;
+    }
+    return statusValue.toUpperCase();
+  }
+
+  private handleActionError(error: any, note: NotificationItem) {
+    const serverMessage = error?.error?.error;
+    if (typeof serverMessage === 'string') {
+      const normalized = serverMessage.toLowerCase();
+      if (normalized.includes('already handled') || normalized.includes('not found')) {
+        this.markHandled(note);
+        this.snackBar.open('This request was already handled.', 'Dismiss', { duration: 2800 });
+        return;
+      }
+      this.snackBar.open(serverMessage, 'Dismiss', { duration: 3500 });
+      return;
+    }
+    this.snackBar.open('Could not process request. Please try again.', 'Dismiss', { duration: 3500 });
   }
 
   ngOnDestroy() {

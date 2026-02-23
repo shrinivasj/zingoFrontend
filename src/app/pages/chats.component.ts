@@ -133,11 +133,13 @@ export class ChatsComponent implements OnInit, OnDestroy {
   conversations: Conversation[] = [];
   private chatSubs = new Map<number, StompSubscription>();
   private notifSub?: StompSubscription;
+  private refreshTimer?: ReturnType<typeof setInterval>;
 
   constructor(private api: ApiService, private stomp: StompService) {}
 
   ngOnInit() {
     this.load();
+    this.refreshTimer = setInterval(() => this.load(), 15000);
     const notifSub = this.stomp.subscribe('/user/queue/notifications', (message) => {
       const payload = JSON.parse(message.body) as NotificationItem;
       if (payload.type === 'INVITE' || payload.type === 'SYSTEM') {
@@ -148,6 +150,7 @@ export class ChatsComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.notifSub?.unsubscribe();
     this.chatSubs.forEach((sub) => sub.unsubscribe());
     this.chatSubs.clear();
@@ -155,7 +158,7 @@ export class ChatsComponent implements OnInit, OnDestroy {
 
   load() {
     this.api.getConversations().subscribe((data) => {
-      this.conversations = data;
+      this.conversations = this.sortConversations(data);
       this.syncSubscriptions();
     });
   }
@@ -188,7 +191,7 @@ export class ChatsComponent implements OnInit, OnDestroy {
       lastMessageText: message.text,
       lastMessageAt: message.createdAt
     };
-    this.conversations = [updated, ...this.conversations.filter((c) => c.id !== message.conversationId)];
+    this.conversations = this.sortConversations([updated, ...this.conversations.filter((c) => c.id !== message.conversationId)]);
   }
 
   nameFor(convo: Conversation) {
@@ -223,5 +226,36 @@ export class ChatsComponent implements OnInit, OnDestroy {
     if (diffDays === 1) return 'Yesterday';
     if (diffDays <= 7) return `${diffDays} days ago`;
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  private sortConversations(items: Conversation[]) {
+    return [...items].sort((a, b) => {
+      const aHasLast = !!a.lastMessageAt;
+      const bHasLast = !!b.lastMessageAt;
+      if (aHasLast !== bHasLast) {
+        return bHasLast ? 1 : -1;
+      }
+
+      if (aHasLast && bHasLast) {
+        const timeDiff = this.parseTime(b.lastMessageAt) - this.parseTime(a.lastMessageAt);
+        if (timeDiff !== 0) {
+          return timeDiff;
+        }
+      } else {
+        const startDiff = this.parseTime(b.startsAt) - this.parseTime(a.startsAt);
+        if (startDiff !== 0) {
+          return startDiff;
+        }
+      }
+      return (b.id ?? 0) - (a.id ?? 0);
+    });
+  }
+
+  private parseTime(value?: string | null) {
+    if (!value) {
+      return 0;
+    }
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? 0 : timestamp;
   }
 }

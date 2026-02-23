@@ -6,22 +6,23 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { BehaviorSubject, combineLatest, Observable, Subject, of } from 'rxjs';
+import { BehaviorSubject, combineLatest, Observable, Subject, of, timer, merge } from 'rxjs';
 import {
   catchError,
-  finalize,
   map,
   shareReplay,
   startWith,
   switchMap,
   take,
   takeUntil,
-  timeout,
   tap
 } from 'rxjs/operators';
 import { ApiService } from '../core/api.service';
-import { City, EventItem, MovieSyncResponse, Showtime, Venue } from '../core/models';
+import { ActiveLobby, City, EventItem, Showtime, Venue } from '../core/models';
 import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
+import { LobbyPresenceService } from '../core/lobby-presence.service';
+
+type PlanKind = 'MOVIE' | 'CAFE';
 
 @Component({
   selector: 'app-dashboard',
@@ -48,35 +49,33 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
         </button>
       </header>
 
-      <h1>Pick a movie, find people to go together</h1>
-      <p class="subtitle">Social-first. No swiping. Shared plans, shared seats.</p>
+      <h1>Pick a {{ planTypeLabelLower() }}, find people to go together</h1>
+      <p class="subtitle">Social-first. No swiping. Shared plans, shared time.</p>
 
-      <div class="scrape-panel">
-        <label for="scrape-pincode">Refresh movie data</label>
-        <div class="scrape-row">
-          <input
-            id="scrape-pincode"
-            class="scrape-input"
-            type="text"
-            inputmode="numeric"
-            maxlength="6"
-            [value]="syncPostalCode"
-            (input)="onSyncPostalCodeInput($event)"
-            placeholder="Pincode (optional when city selected)"
-          />
-          <button class="scrape-btn" (click)="runMovieSync()" [disabled]="syncInProgress">
-            {{ syncInProgress ? 'Syncing...' : 'Sync Movies' }}
-          </button>
-        </div>
-        <p class="scrape-note">Source: MovieGlu API</p>
-        <p class="scrape-error" *ngIf="syncError">{{ syncError }}</p>
-        <p class="scrape-success" *ngIf="syncResult">
-          Synced {{ syncResult.cityName || 'city' }}:
-          venues {{ syncResult.venuesUpserted }},
-          events {{ syncResult.eventsUpserted }},
-          showtimes {{ syncResult.showtimesUpserted }}
-        </p>
+      <div class="mode-toggle" role="tablist" aria-label="Plan type">
+        <button type="button" [class.active]="selectedPlanType === 'MOVIE'" (click)="setPlanType('MOVIE')">Movie</button>
+        <button type="button" [class.active]="selectedPlanType === 'CAFE'" (click)="setPlanType('CAFE')">Cafe</button>
       </div>
+
+      <ng-container *ngIf="activeLobbies$ | async as activeLobbies">
+        <div class="active-lobby-card" *ngIf="activeLobbies.length">
+          <div class="active-lobby-title">Current Lobbies ({{ activeLobbies.length }})</div>
+          <div class="active-lobby-list">
+            <div class="active-lobby-row" *ngFor="let lobby of activeLobbies">
+              <div class="active-lobby-info">
+                <div class="active-lobby-meta">{{ lobby.eventTitle || 'Plan' }} at {{ lobby.venueName || 'Place' }}</div>
+                <div class="active-lobby-submeta">
+                  Lobby #{{ lobby.showtimeId }} · {{ lobbyTimeLabel(lobby.startsAt) }} · {{ lobby.liveCount }} live
+                </div>
+              </div>
+              <div class="active-lobby-actions">
+                <button class="active-open-btn" (click)="openActiveLobby(lobby.showtimeId)">Open</button>
+                <button class="active-leave-btn" (click)="leaveActiveLobby(lobby.showtimeId)">Leave</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </ng-container>
 
       <div class="form">
         <label>City</label>
@@ -98,14 +97,14 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
           </mat-form-field>
         </ng-template>
 
-        <label>Theatre</label>
-        <ng-container *ngIf="venues$ | async as venues; else venueLoading">
+        <label>{{ placeLabel() }}</label>
+        <ng-container *ngIf="filteredVenues$ | async as venues; else venueLoading">
           <mat-form-field appearance="outline" class="select-field">
             <mat-select
               [value]="selectedVenueId"
               (selectionChange)="onVenueChange($event.value)"
               [disabled]="!venues.length"
-              [placeholder]="venues.length ? 'Select your favorite theatre' : 'No theatres available'"
+              [placeholder]="venues.length ? 'Select your place' : 'No places available'"
             >
               <mat-option *ngFor="let venue of venues; trackBy: trackByVenueId" [value]="venue.id">{{ venue.name }}</mat-option>
             </mat-select>
@@ -113,12 +112,12 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
         </ng-container>
         <ng-template #venueLoading>
           <mat-form-field appearance="outline" class="select-field">
-            <mat-select disabled placeholder="Loading theatres"></mat-select>
+            <mat-select disabled placeholder="Loading places"></mat-select>
           </mat-form-field>
         </ng-template>
       </div>
 
-      <h2>{{ (sectionTitle$ | async) || 'Pick a theatre to see movies' }}</h2>
+      <h2>{{ (sectionTitle$ | async) || defaultSectionTitle() }}</h2>
       <div class="movie-list">
         <div class="movie-card" *ngFor="let event of (filteredEvents$ | async) ?? []; trackBy: trackByEventId">
           <div class="poster" *ngIf="event.posterUrl; else placeholder" [style.backgroundImage]="'url(' + event.posterUrl + ')'"></div>
@@ -127,7 +126,7 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
           </ng-template>
           <div class="info">
             <div class="title">{{ event.title }}</div>
-            <div class="meta">Movie · 2h 15m</div>
+            <div class="meta">{{ eventTypeLabel(event.type) }}</div>
           </div>
           <button class="view-btn" (click)="openShowtimesFor(event)">View</button>
         </div>
@@ -186,57 +185,85 @@ import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
         color: #6a6a6a;
         font-size: 16px;
       }
-      .scrape-panel {
+      .mode-toggle {
         display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 8px;
-        margin-bottom: 20px;
-        padding: 12px;
-        background: #fff;
-        border-radius: 16px;
-        border: 1px solid rgba(0, 0, 0, 0.08);
+        margin-bottom: 18px;
+        background: #f2f4f7;
+        border-radius: 14px;
+        padding: 6px;
       }
-      .scrape-row {
+      .mode-toggle button {
+        border: none;
+        background: transparent;
+        border-radius: 10px;
+        height: 38px;
+        font-weight: 700;
+        color: #475467;
+        cursor: pointer;
+      }
+      .mode-toggle button.active {
+        background: #ffffff;
+        color: #111111;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+      }
+      .active-lobby-card {
         display: grid;
-        grid-template-columns: 1fr auto;
         gap: 10px;
+        margin-bottom: 18px;
+        padding: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 16px;
+        background: #f6fbff;
       }
-      .scrape-input {
-        height: 42px;
-        border: 1px solid rgba(0, 0, 0, 0.16);
-        border-radius: 12px;
-        padding: 0 12px;
+      .active-lobby-title {
+        font-weight: 700;
+        color: #111;
+      }
+      .active-lobby-meta {
+        color: #334155;
         font-size: 14px;
       }
-      .scrape-btn {
-        height: 42px;
+      .active-lobby-list {
+        display: grid;
+        gap: 8px;
+      }
+      .active-lobby-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .active-lobby-info {
+        display: grid;
+        gap: 2px;
+      }
+      .active-lobby-submeta {
+        color: #64748b;
+        font-size: 12px;
+      }
+      .active-lobby-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .active-open-btn,
+      .active-leave-btn {
+        height: 36px;
+        border-radius: 10px;
+        padding: 0 12px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .active-open-btn {
         border: none;
         background: #111;
         color: #fff;
-        padding: 0 14px;
-        border-radius: 12px;
-        font-weight: 600;
-        cursor: pointer;
       }
-      .scrape-btn:disabled {
-        opacity: 0.6;
-        cursor: default;
-      }
-      .scrape-note {
-        margin: 0;
-        color: #6a6a6a;
-        font-size: 12px;
-      }
-      .scrape-error {
-        margin: 0;
-        color: #b42318;
-        font-size: 13px;
-        font-weight: 600;
-      }
-      .scrape-success {
-        margin: 0;
-        color: #0f7b36;
-        font-size: 13px;
-        font-weight: 600;
+      .active-leave-btn {
+        border: 1px solid rgba(17, 17, 17, 0.2);
+        background: #fff;
+        color: #111;
       }
       .form {
         display: grid;
@@ -307,15 +334,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
   selectedCityId?: number;
   selectedVenueId?: number;
   selectedEventId?: number;
-  syncPostalCode = '';
-  syncInProgress = false;
-  syncError = '';
-  syncResult: MovieSyncResponse | null = null;
+  selectedPlanType: PlanKind = 'MOVIE';
+  private activeLobbiesRefresh$ = new Subject<void>();
+  readonly activeLobbies$ = merge(timer(0, 10000), this.activeLobbiesRefresh$).pipe(
+    switchMap(() => this.api.getActiveLobbies(true).pipe(catchError(() => of([] as ActiveLobby[])))),
+    shareReplay({ bufferSize: 1, refCount: true })
+  );
 
   private destroy$ = new Subject<void>();
   private cityId$ = new BehaviorSubject<number | null>(null);
   private venueId$ = new BehaviorSubject<number | null>(null);
   private eventId$ = new BehaviorSubject<number | null>(null);
+  private planType$ = new BehaviorSubject<PlanKind>('MOVIE');
   private reloadTick$ = new BehaviorSubject<number>(0);
   private venueShowtimesCache = new Map<number, Observable<Showtime[]>>();
   private citiesSnapshot: City[] = [];
@@ -332,8 +362,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
     shareReplay({ bufferSize: 1, refCount: false })
   );
 
-  readonly events$ = combineLatest([this.cityId$, this.reloadTick$]).pipe(
-    switchMap(([cityId]) => (cityId ? this.api.getEvents(cityId).pipe(catchError(() => of([]))) : of([]))),
+  readonly events$ = combineLatest([this.cityId$, this.planType$, this.reloadTick$]).pipe(
+    switchMap(([cityId, planType]) =>
+      cityId ? this.api.getEvents(cityId, undefined, undefined, planType).pipe(catchError(() => of([]))) : of([])
+    ),
     tap((events) => this.ensureEventSelection(events)),
     shareReplay({ bufferSize: 1, refCount: false })
   );
@@ -343,14 +375,44 @@ export class DashboardComponent implements OnInit, OnDestroy {
     shareReplay({ bufferSize: 1, refCount: false })
   );
 
+  readonly cityShowtimes$ = combineLatest([this.cityId$, this.reloadTick$]).pipe(
+    switchMap(([cityId]) =>
+      cityId ? this.api.getShowtimes(undefined, undefined, undefined, undefined, cityId).pipe(catchError(() => of([]))) : of([])
+    ),
+    shareReplay({ bufferSize: 1, refCount: false })
+  );
+
+  readonly filteredVenues$ = combineLatest([
+    this.venues$.pipe(startWith([] as Venue[])),
+    this.events$.pipe(startWith([] as EventItem[])),
+    this.cityShowtimes$.pipe(startWith([] as Showtime[]))
+  ]).pipe(
+    map(([venues, events, cityShowtimes]) => {
+      if (!venues.length) {
+        return [] as Venue[];
+      }
+      if (!events.length) {
+        return [] as Venue[];
+      }
+      const eventIds = new Set(events.map((event) => event.id));
+      const eligibleVenueIds = new Set(
+        cityShowtimes.filter((showtime) => eventIds.has(showtime.eventId)).map((showtime) => showtime.venueId)
+      );
+      return venues.filter((venue) => eligibleVenueIds.has(venue.id));
+    }),
+    tap((venues) => this.ensureVenueSelection(venues)),
+    shareReplay({ bufferSize: 1, refCount: false })
+  );
+
   readonly filteredEvents$ = combineLatest([
     this.events$.pipe(startWith([] as EventItem[])),
+    this.cityId$,
     this.venueId$,
     this.venueShowtimes$.pipe(startWith([] as Showtime[]))
   ]).pipe(
-    map(([events, venueId, showtimes]) => {
-      if (!venueId) {
-        return events;
+    map(([events, cityId, venueId, showtimes]) => {
+      if (!cityId || !venueId) {
+        return [] as EventItem[];
       }
       const eventIds = new Set(showtimes.map((showtime) => showtime.eventId));
       return events.filter((event) => eventIds.has(event.id));
@@ -371,16 +433,25 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   readonly sectionTitle$ = combineLatest([
     this.venues$.pipe(startWith([] as Venue[])),
-    this.venueId$
+    this.venueId$,
+    this.planType$
   ]).pipe(
-    map(([venues, venueId]) => {
+    map(([venues, venueId, planType]) => {
       const venueName = venues.find((venue) => venue.id === venueId)?.name;
-      return venueName ? `Movies at ${venueName}` : 'Pick a theatre to see movies';
+      if (venueName) {
+        return planType === 'CAFE' ? `Cafe plans at ${venueName}` : `Movies at ${venueName}`;
+      }
+      return planType === 'CAFE' ? 'Pick a cafe to see cafe plans' : 'Pick a theatre to see movies';
     }),
     shareReplay({ bufferSize: 1, refCount: false })
   );
 
-  constructor(private api: ApiService, private router: Router, private dialog: MatDialog) {}
+  constructor(
+    private api: ApiService,
+    private router: Router,
+    private dialog: MatDialog,
+    private lobbyPresence: LobbyPresenceService
+  ) {}
 
   ngOnInit() {
     this.loadCities();
@@ -412,48 +483,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.setVenue(venueId);
   }
 
-  onSyncPostalCodeInput(event: Event) {
-    const input = event.target as HTMLInputElement | null;
-    const value = input?.value ?? '';
-    this.syncPostalCode = value.replace(/\D+/g, '').slice(0, 6);
-  }
-
-  runMovieSync() {
-    if (this.syncInProgress) {
+  setPlanType(type: PlanKind) {
+    if (this.selectedPlanType === type) {
       return;
     }
-    const postalCode = this.syncPostalCode.trim();
-    const selectedCity = this.citiesSnapshot.find((city) => city.id === this.selectedCityId);
-    const cityName = selectedCity?.name;
-
-    if (!postalCode && !cityName) {
-      this.syncResult = null;
-      this.syncError = 'Select a city or enter a pincode before syncing.';
-      return;
-    }
-
-    this.syncInProgress = true;
-    this.syncResult = null;
-    this.syncError = '';
-
-    this.api
-      .syncMovies(postalCode || undefined, cityName, 1)
-      .pipe(
-        timeout(45000),
-        take(1),
-        finalize(() => {
-          this.syncInProgress = false;
-        })
-      )
-      .subscribe({
-        next: (result) => {
-          this.syncResult = result;
-          this.refreshSyncedData();
-        },
-        error: (error: unknown) => {
-          this.syncError = this.parseSyncError(error);
-        }
-      });
+    this.selectedPlanType = type;
+    this.planType$.next(type);
+    this.selectedVenueId = undefined;
+    this.venueId$.next(null);
+    this.selectedEventId = undefined;
+    this.eventId$.next(null);
   }
 
   openShowtimesFor(event: EventItem) {
@@ -470,6 +509,28 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.router.navigate(['/lobby', showtime.id]);
   }
 
+  openActiveLobby(showtimeId?: number | null) {
+    if (!showtimeId) {
+      return;
+    }
+    this.router.navigate(['/lobby', showtimeId]);
+  }
+
+  leaveActiveLobby(showtimeId?: number | null) {
+    if (!showtimeId) {
+      return;
+    }
+    this.lobbyPresence.exitLobby(showtimeId).subscribe({
+      complete: () => this.activeLobbiesRefresh$.next()
+    });
+  }
+
+  lobbyTimeLabel(value?: string | null) {
+    if (!value) return 'Time unavailable';
+    const date = new Date(value);
+    return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
   trackByEventId(_: number, event: EventItem) {
     return event.id;
   }
@@ -480,6 +541,22 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   trackByVenueId(_: number, venue: Venue) {
     return venue.id;
+  }
+
+  planTypeLabelLower() {
+    return this.selectedPlanType === 'CAFE' ? 'cafe' : 'movie';
+  }
+
+  placeLabel() {
+    return this.selectedPlanType === 'CAFE' ? 'Cafe' : 'Theatre';
+  }
+
+  defaultSectionTitle() {
+    return this.selectedPlanType === 'CAFE' ? 'Pick a cafe to see cafe plans' : 'Pick a theatre to see movies';
+  }
+
+  eventTypeLabel(type: EventItem['type']) {
+    return type === 'CAFE' ? 'Cafe meetup' : 'Movie';
   }
 
   private setCity(cityId: number) {
@@ -570,30 +647,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return [...showtimes].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
   }
 
-  private refreshSyncedData() {
-    this.venueShowtimesCache.clear();
-    this.reloadTick$.next(this.reloadTick$.value + 1);
-  }
-
-  private parseSyncError(error: unknown): string {
-    if (typeof error === 'object' && error !== null && 'name' in error) {
-      const namedError = error as { name?: string };
-      if (namedError.name === 'TimeoutError') {
-        return 'Movie sync is taking too long. Try again with a city selected, or retry after a minute.';
-      }
-    }
-    if (typeof error === 'object' && error !== null) {
-      const response = error as { error?: { message?: string }; message?: string };
-      if (response.error?.message) {
-        return response.error.message;
-      }
-      if (response.message) {
-        return response.message;
-      }
-    }
-    return 'Movie sync failed. Please try again.';
-  }
-
   private openShowtimesDialog(event: EventItem, showtimes: Showtime[]) {
     const selectedVenue = this.venuesSnapshot.find((venue) => venue.id === this.selectedVenueId);
     this.dialog
@@ -615,4 +668,5 @@ export class DashboardComponent implements OnInit, OnDestroy {
         }
       });
   }
+
 }

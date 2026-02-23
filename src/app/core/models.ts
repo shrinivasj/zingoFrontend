@@ -12,6 +12,8 @@ export interface Profile {
   displayName: string;
   avatarUrl?: string | null;
   e2eePublicKey?: string | null;
+  e2eeEncryptedPrivateKey?: string | null;
+  e2eeKeySalt?: string | null;
   bioShort?: string | null;
   personalityTags?: string[] | null;
 }
@@ -29,7 +31,7 @@ export interface Venue {
 
 export interface EventItem {
   id: number;
-  type: 'MOVIE' | 'PLAY' | 'CONCERT' | 'COMEDY' | 'SPORTS' | 'WORKSHOP' | 'EXHIBITION' | 'FESTIVAL' | 'KIDS' | 'OTHER';
+  type: 'MOVIE' | 'CAFE' | 'PLAY' | 'CONCERT' | 'COMEDY' | 'SPORTS' | 'WORKSHOP' | 'EXHIBITION' | 'FESTIVAL' | 'KIDS' | 'OTHER';
   title: string;
   posterUrl?: string | null;
 }
@@ -54,6 +56,14 @@ export interface LobbyUsersResponse {
   showtimeId: number;
   total: number;
   users: LobbyUser[];
+}
+
+export interface ActiveLobby {
+  showtimeId: number;
+  eventTitle?: string | null;
+  venueName?: string | null;
+  startsAt?: string | null;
+  liveCount: number;
 }
 
 export interface Invite {
@@ -112,6 +122,33 @@ export interface MovieSyncResponse {
   venuesUpserted: number;
   eventsUpserted: number;
   showtimesUpserted: number;
+}
+
+export interface AdminStatus {
+  owner: boolean;
+}
+
+export interface AdminConfigEntry {
+  key: string;
+  value: string;
+}
+
+export interface AdminConfigResponse {
+  entries: AdminConfigEntry[];
+}
+
+export interface AdminCafeCreateResponse {
+  cityId: number;
+  cityName: string;
+  venueId: number;
+  venueName: string;
+  eventId: number;
+  title: string;
+  showtimeId: number;
+  startsAt: string;
+  venueCreated: boolean;
+  eventCreated: boolean;
+  showtimeCreated: boolean;
 }
 
 export type ScrapeSyncResponse = MovieSyncResponse;

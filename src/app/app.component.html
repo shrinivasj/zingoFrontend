@@ -8,6 +8,7 @@
     <a mat-button routerLink="/dashboard">Dashboard</a>
     <a mat-button routerLink="/chats">Chats</a>
     <a mat-button routerLink="/notifications">Notifications</a>
+    <a mat-button routerLink="/admin" *ngIf="isOwner">Admin</a>
     <a mat-button routerLink="/profile">Profile</a>
     <span class="user-pill">{{ user.displayName }}</span>
     <button mat-stroked-button (click)="logout()">Log out</button>
@@ -17,6 +18,17 @@
     <a mat-flat-button routerLink="/register">Register</a>
   </ng-template>
 </mat-toolbar>
+
+<div class="global-loader" *ngIf="loading$ | async" aria-live="polite" aria-label="Loading">
+  <div class="premium-loader">
+    <div class="orbit orbit-a" aria-hidden="true"><span class="dot dot-a"></span></div>
+    <div class="orbit orbit-b" aria-hidden="true"><span class="dot dot-b"></span></div>
+    <div class="orbit orbit-c" aria-hidden="true"><span class="dot dot-c"></span></div>
+    <div class="bird-core">
+      <img class="bird-icon" src="assets/aurofly-logo.png" alt="Aurofly bird" />
+    </div>
+  </div>
+</div>
 
 <div class="app-shell">
   <router-outlet></router-outlet>
@@ -28,7 +40,10 @@
     <span>Dashboard</span>
   </a>
   <a routerLink="/chats" routerLinkActive="active">
-    <span class="material-icons">chat_bubble_outline</span>
+    <span class="nav-icon-wrap">
+      <span class="material-icons">chat_bubble_outline</span>
+      <span class="nav-badge" *ngIf="unreadChatCount > 0">{{ unreadChatCount > 99 ? '99+' : unreadChatCount }}</span>
+    </span>
     <span>Chats</span>
   </a>
   <a routerLink="/notifications" routerLinkActive="active">

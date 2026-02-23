@@ -1,4 +1,4 @@
-import { Component, HostBinding, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -6,12 +6,17 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { Subject, takeUntil } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../core/auth.service';
+import { ApiService } from '../core/api.service';
+import { E2eeService } from '../core/e2ee.service';
 
 @Component({
   selector: 'app-login',
   standalone: true,
+  host: {
+    '[class.hidden]': 'redirecting'
+  },
   imports: [
     CommonModule,
     ReactiveFormsModule,
@@ -22,7 +27,7 @@ import { AuthService } from '../core/auth.service';
     MatIconModule
   ],
   template: `
-    <div class="auth-shell" *ngIf="!isAuthenticated">
+    <div class="auth-shell">
       <div class="auth-card">
         <img class="logo" src="assets/aurofly-logo.png" alt="aurofly" />
         <form [formGroup]="form" (ngSubmit)="submit()">
@@ -230,31 +235,32 @@ import { AuthService } from '../core/auth.service';
     `
   ]
 })
-export class LoginComponent implements OnInit, OnDestroy {
+export class LoginComponent implements OnInit {
+  private readonly authTraceEnabled = true;
   loading = false;
   showPassword = false;
+  redirecting = false;
   errorMessage = '';
-  isAuthenticated = false;
-  @HostBinding('class.hidden') hostHidden = false;
-  private destroy$ = new Subject<void>();
   form = this.fb.group({
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.required]]
   });
 
-  constructor(private fb: FormBuilder, private auth: AuthService, private router: Router) {}
+  constructor(
+    private fb: FormBuilder,
+    private auth: AuthService,
+    private api: ApiService,
+    private e2ee: E2eeService,
+    private router: Router
+  ) {}
 
   ngOnInit() {
-    this.isAuthenticated = !!this.auth.getToken();
-    this.hostHidden = this.isAuthenticated;
-    if (this.isAuthenticated) {
-      this.router.navigateByUrl('/dashboard', { replaceUrl: true });
+    this.traceAuth('ngOnInit', { hasToken: !!this.auth.getToken() });
+    if (this.auth.getToken()) {
+      this.redirecting = true;
+      this.traceAuth('token found on init, redirecting', { to: '/dashboard' });
+      this.redirectToDashboard();
     }
-
-    this.auth.user$.pipe(takeUntil(this.destroy$)).subscribe((user) => {
-      this.isAuthenticated = !!user || !!this.auth.getToken();
-      this.hostHidden = this.isAuthenticated;
-    });
   }
 
   submit() {
@@ -263,20 +269,23 @@ export class LoginComponent implements OnInit, OnDestroy {
     const password = (this.form.value.password ?? '').trim();
     this.form.patchValue({ email, password }, { emitEvent: false });
     if (this.form.invalid) {
+      this.traceAuth('submit blocked: invalid form');
       this.form.markAllAsTouched();
       return;
     }
     this.loading = true;
+    this.traceAuth('login request started', { email });
     this.auth.login(email!, password!).subscribe({
       next: () => {
         this.loading = false;
-        this.isAuthenticated = true;
-        this.hostHidden = true;
-        this.router.navigate(['/dashboard']);
+        this.redirecting = true;
+        this.traceAuth('login success, syncing keys', { to: '/dashboard' });
+        void this.syncE2eeKeys(password).finally(() => this.redirectToDashboard());
       },
       error: (err) => {
         this.loading = false;
-        this.errorMessage = err?.error?.message || 'Login failed. Please try again.';
+        this.traceAuth('login error', { status: err?.status, message: err?.error?.message || err?.message });
+        this.errorMessage = err?.error?.error || err?.error?.message || 'Login failed. Please try again.';
       }
     });
   }
@@ -285,8 +294,51 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.showPassword = !this.showPassword;
   }
 
-  ngOnDestroy() {
-    this.destroy$.next();
-    this.destroy$.complete();
+  private async syncE2eeKeys(password: string) {
+    try {
+      const profile = await firstValueFrom(this.api.getProfile());
+      const keyState = await this.e2ee.syncKeysForPassword(
+        password,
+        profile.e2eePublicKey || null,
+        profile.e2eeEncryptedPrivateKey || null,
+        profile.e2eeKeySalt || null
+      );
+      const needsUpdate =
+        profile.e2eePublicKey !== keyState.publicJwk ||
+        profile.e2eeEncryptedPrivateKey !== keyState.encryptedPrivateKey ||
+        profile.e2eeKeySalt !== keyState.keySalt;
+      if (needsUpdate) {
+        await firstValueFrom(
+          this.api.updateProfile({
+            e2eePublicKey: keyState.publicJwk,
+            e2eeEncryptedPrivateKey: keyState.encryptedPrivateKey,
+            e2eeKeySalt: keyState.keySalt
+          })
+        );
+      }
+      this.traceAuth('e2ee key sync complete');
+    } catch (error) {
+      this.traceAuth('e2ee key sync failed', { error: String(error) });
+    }
+  }
+
+  private redirectToDashboard() {
+    this.router.navigateByUrl('/dashboard', { replaceUrl: true }).then((navigated) => {
+      this.traceAuth('router redirect result', { navigated, url: this.router.url });
+      // Fallback for cases where router navigation completes but auth view remains mounted.
+      queueMicrotask(() => {
+        if (this.router.url.startsWith('/login') || this.router.url.startsWith('/register')) {
+          this.traceAuth('forcing hard redirect fallback', { to: '/dashboard' });
+          window.location.replace('/dashboard');
+        }
+      });
+    });
+  }
+
+  private traceAuth(message: string, data?: Record<string, unknown>) {
+    if (!this.authTraceEnabled) {
+      return;
+    }
+    console.debug(`[auth-trace][LoginComponent] ${message}`, data ?? {});
   }
 }

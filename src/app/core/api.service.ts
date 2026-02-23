@@ -1,9 +1,14 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
   City,
   Conversation,
+  AdminStatus,
+  AdminConfigResponse,
+  AdminConfigEntry,
+  AdminCafeCreateResponse,
+  ActiveLobby,
   EventItem,
   IcebreakerResponse,
   Invite,
@@ -17,9 +22,10 @@ import {
   User,
   Venue
 } from './models';
+import { environment } from '../../environments/environment';
+import { SKIP_GLOBAL_LOADING } from './loading.interceptor';
 
-const API_BASE = 'https://zingo-bv09.onrender.com/api';
-//const API_BASE = 'http://192.168.1.8:8080/api';
+const API_BASE = environment.apiBase;
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -84,13 +90,22 @@ export class ApiService {
     return this.http.get<EventItem[]>(`${API_BASE}/events`, { params });
   }
 
-  getShowtimes(eventId?: number, venueId?: number, cityName?: string, postalCode?: string): Observable<Showtime[]> {
+  getShowtimes(
+    eventId?: number,
+    venueId?: number,
+    cityName?: string,
+    postalCode?: string,
+    cityId?: number
+  ): Observable<Showtime[]> {
     let params = new HttpParams();
     if (eventId) {
       params = params.set('eventId', String(eventId));
     }
     if (venueId) {
       params = params.set('venueId', String(venueId));
+    }
+    if (cityId) {
+      params = params.set('cityId', String(cityId));
     }
     if (cityName) {
       params = params.set('city', cityName);
@@ -110,12 +125,41 @@ export class ApiService {
     return this.syncMovies(postalCode, cityName, days);
   }
 
+  getAdminStatus(silent = true): Observable<AdminStatus> {
+    return this.http.get<AdminStatus>(`${API_BASE}/admin/me`, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
+  }
+
+  getAdminConfig(silent = true): Observable<AdminConfigResponse> {
+    return this.http.get<AdminConfigResponse>(`${API_BASE}/admin/config`, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
+  }
+
+  updateAdminConfig(key: string, value: string): Observable<AdminConfigEntry> {
+    return this.http.post<AdminConfigEntry>(`${API_BASE}/admin/config`, { key, value });
+  }
+
+  createAdminCafePlan(body: {
+    cityId: number;
+    venueName: string;
+    title?: string;
+    startsAt?: string;
+    address?: string;
+    postalCode?: string;
+  }): Observable<AdminCafeCreateResponse> {
+    return this.http.post<AdminCafeCreateResponse>(`${API_BASE}/admin/cafes`, body);
+  }
+
   joinLobby(showtimeId: number) {
     return this.http.post(`${API_BASE}/lobbies/join`, { showtimeId });
   }
 
-  heartbeat(showtimeId: number) {
-    return this.http.post(`${API_BASE}/lobbies/heartbeat`, { showtimeId });
+  heartbeat(showtimeId: number, silent = false) {
+    return this.http.post(`${API_BASE}/lobbies/heartbeat`, { showtimeId }, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
   }
 
   leaveLobby(showtimeId: number) {
@@ -125,6 +169,12 @@ export class ApiService {
   lobbyUsers(showtimeId: number, page = 0, size = 24): Observable<LobbyUsersResponse> {
     let params = new HttpParams().set('page', String(page)).set('size', String(size));
     return this.http.get<LobbyUsersResponse>(`${API_BASE}/lobbies/${showtimeId}/users`, { params });
+  }
+
+  getActiveLobbies(silent = false): Observable<ActiveLobby[]> {
+    return this.http.get<ActiveLobby[]>(`${API_BASE}/lobbies/active`, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
   }
 
   createInvite(toUserId: number, showtimeId: number): Observable<Invite> {
@@ -147,8 +197,18 @@ export class ApiService {
     return this.http.post<NotificationItem>(`${API_BASE}/notifications/${id}/read`, {});
   }
 
-  getConversations(): Observable<Conversation[]> {
-    return this.http.get<Conversation[]>(`${API_BASE}/conversations`);
+  registerPushToken(token: string, platform: string) {
+    return this.http.post(`${API_BASE}/push/register`, { token, platform });
+  }
+
+  unregisterPushToken(token: string) {
+    return this.http.post(`${API_BASE}/push/unregister`, { token });
+  }
+
+  getConversations(silent = false): Observable<Conversation[]> {
+    return this.http.get<Conversation[]>(`${API_BASE}/conversations`, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
   }
 
   getMessages(conversationId: number, page = 0, size = 50): Observable<Message[]> {

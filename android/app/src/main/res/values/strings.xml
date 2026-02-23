@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Aurofly</string>
+    <string name="title_activity_main">Aurofly</string>
+    <string name="package_name">com.aurofly.app</string>
+    <string name="custom_url_scheme">com.aurofly.app</string>
+</resources>

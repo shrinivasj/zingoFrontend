@@ -7,7 +7,10 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../core/auth.service';
+import { ApiService } from '../core/api.service';
+import { E2eeService } from '../core/e2ee.service';
 
 @Component({
   selector: 'app-register',
@@ -101,14 +104,21 @@ export class RegisterComponent {
     password: ['', [Validators.required, Validators.minLength(6)]]
   });
 
-  constructor(private fb: FormBuilder, private auth: AuthService, private router: Router) {}
+  constructor(
+    private fb: FormBuilder,
+    private auth: AuthService,
+    private api: ApiService,
+    private e2ee: E2eeService,
+    private router: Router
+  ) {}
 
   submit() {
     if (this.form.invalid) return;
     this.loading = true;
     const { email, password, displayName } = this.form.value;
     this.auth.register(email!, password!, displayName!).subscribe({
-      next: () => {
+      next: async () => {
+        await this.syncE2eeKeys(password!);
         this.loading = false;
         this.router.navigate(['/dashboard']);
       },
@@ -120,5 +130,28 @@ export class RegisterComponent {
 
   togglePassword() {
     this.showPassword = !this.showPassword;
+  }
+
+  private async syncE2eeKeys(password: string) {
+    try {
+      const profile = await firstValueFrom(this.api.getProfile());
+      const keyState = await this.e2ee.syncKeysForPassword(password, profile.e2eePublicKey || null);
+      const needsUpdate =
+        profile.e2eePublicKey !== keyState.publicJwk ||
+        profile.e2eeEncryptedPrivateKey !== keyState.encryptedPrivateKey ||
+        profile.e2eeKeySalt !== keyState.keySalt;
+      if (!needsUpdate) {
+        return;
+      }
+      await firstValueFrom(
+        this.api.updateProfile({
+          e2eePublicKey: keyState.publicJwk,
+          e2eeEncryptedPrivateKey: keyState.encryptedPrivateKey,
+          e2eeKeySalt: keyState.keySalt
+        })
+      );
+    } catch {
+      // non-blocking: registration should still complete even if key sync fails
+    }
   }
 }

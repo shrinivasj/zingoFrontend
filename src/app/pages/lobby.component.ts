@@ -7,6 +7,8 @@ import { LobbyUser } from '../core/models';
 import { StompService } from '../core/stomp.service';
 import { ProfileCardDialogComponent } from '../components/profile-card.dialog';
 import { StompSubscription } from '@stomp/stompjs';
+import { LobbyPresenceService } from '../core/lobby-presence.service';
+import { Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-lobby',
@@ -14,7 +16,10 @@ import { StompSubscription } from '@stomp/stompjs';
   imports: [CommonModule, MatDialogModule],
   template: `
     <section class="lobby">
-      <button class="back-btn" (click)="goBack()" aria-label="Back">←</button>
+      <div class="top-actions">
+        <button class="back-btn" (click)="goBack()" aria-label="Back">←</button>
+        <button class="exit-btn" (click)="exitLobby()" [disabled]="exiting">Exit Lobby</button>
+      </div>
 
       <div class="header">
         <h1>People going for this show</h1>
@@ -63,6 +68,11 @@ import { StompSubscription } from '@stomp/stompjs';
       .lobby {
         padding: 20px 20px 32px;
       }
+      .top-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
       .back-btn {
         border: none;
         background: transparent;
@@ -70,6 +80,20 @@ import { StompSubscription } from '@stomp/stompjs';
         width: 44px;
         height: 44px;
         cursor: pointer;
+      }
+      .exit-btn {
+        border: 1px solid #f4c2c3;
+        background: #fff6f6;
+        color: #b52e32;
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .exit-btn:disabled {
+        opacity: 0.7;
+        cursor: default;
       }
       .header h1 {
         margin: 8px 0 6px;
@@ -245,44 +269,55 @@ export class LobbyComponent implements OnInit, OnDestroy {
   users: LobbyUser[] = [];
   orbitUsers: LobbyUser[] = [];
   liveCount = 0;
+  exiting = false;
   currentAvatarUrl = '';
-  private heartbeatTimer?: ReturnType<typeof setInterval>;
   private subscription?: StompSubscription | null;
   private refreshDebounceTimer?: ReturnType<typeof setTimeout>;
   private refreshQueued = false;
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private reconnectSub?: Subscription;
 
   constructor(
     private route: ActivatedRoute,
     private api: ApiService,
     private stomp: StompService,
     private dialog: MatDialog,
-    private router: Router
+    private router: Router,
+    private lobbyPresence: LobbyPresenceService
   ) {}
 
   ngOnInit() {
     this.showtimeId = Number(this.route.snapshot.paramMap.get('showtimeId'));
+    if (!Number.isInteger(this.showtimeId) || this.showtimeId <= 0) {
+      this.router.navigate(['/dashboard']);
+      return;
+    }
+
     this.subscription = this.stomp.subscribe(`/topic/lobby.${this.showtimeId}`, (message) => {
       const payload = JSON.parse(message.body);
       this.liveCount = payload.count ?? this.liveCount;
       this.queueRefreshUsers();
     });
 
-    this.api.joinLobby(this.showtimeId).subscribe((update: any) => {
+    this.lobbyPresence.enterLobby(this.showtimeId).subscribe((update: any) => {
       this.liveCount = update.count ?? 0;
     });
     this.api.getProfile().subscribe((profile) => {
       this.currentAvatarUrl = profile.avatarUrl || '';
     });
     this.refreshUsers();
-    this.heartbeatTimer = setInterval(() => this.api.heartbeat(this.showtimeId).subscribe(), 30000);
+    this.refreshTimer = setInterval(() => this.refreshUsers(), 10000);
+    this.reconnectSub = this.stomp.connected$.subscribe((connected) => {
+      if (!connected) return;
+      this.refreshUsers();
+      this.lobbyPresence.enterLobby(this.showtimeId).subscribe({ error: () => {} });
+    });
   }
 
   ngOnDestroy() {
-    if (this.showtimeId) {
-      this.api.leaveLobby(this.showtimeId).subscribe({ error: () => {} });
-    }
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.refreshDebounceTimer) clearTimeout(this.refreshDebounceTimer);
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.reconnectSub?.unsubscribe();
     if (this.subscription) this.subscription.unsubscribe();
   }
 
@@ -321,6 +356,18 @@ export class LobbyComponent implements OnInit, OnDestroy {
 
   goBack() {
     this.router.navigate(['/dashboard']);
+  }
+
+  exitLobby() {
+    if (this.exiting) {
+      return;
+    }
+    this.exiting = true;
+    this.lobbyPresence.exitLobby(this.showtimeId).subscribe({
+      complete: () => {
+        this.router.navigate(['/dashboard']);
+      }
+    });
   }
 
   private queueRefreshUsers() {
