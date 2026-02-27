@@ -14,6 +14,7 @@ export interface Profile {
   e2eePublicKey?: string | null;
   e2eeEncryptedPrivateKey?: string | null;
   e2eeKeySalt?: string | null;
+  trekHostEnabled?: boolean;
   bioShort?: string | null;
   personalityTags?: string[] | null;
 }
@@ -31,7 +32,7 @@ export interface Venue {
 
 export interface EventItem {
   id: number;
-  type: 'MOVIE' | 'CAFE' | 'PLAY' | 'CONCERT' | 'COMEDY' | 'SPORTS' | 'WORKSHOP' | 'EXHIBITION' | 'FESTIVAL' | 'KIDS' | 'OTHER';
+  type: 'MOVIE' | 'CAFE' | 'TREK' | 'PLAY' | 'CONCERT' | 'COMEDY' | 'SPORTS' | 'WORKSHOP' | 'EXHIBITION' | 'FESTIVAL' | 'KIDS' | 'OTHER';
   title: string;
   posterUrl?: string | null;
 }
@@ -89,13 +90,51 @@ export interface NotificationItem {
   createdAt: string;
 }
 
+export interface TrekGroup {
+  id: number;
+  showtimeId: number;
+  hostUserId: number;
+  hostDisplayName: string;
+  hostAvatarUrl?: string | null;
+  description?: string | null;
+  maxMembers?: number | null;
+  pendingRequests: number;
+  createdAt: string;
+}
+
+export interface TrekJoinRequest {
+  id: number;
+  groupId: number;
+  showtimeId: number;
+  requesterUserId: number;
+  requesterDisplayName: string;
+  requesterAvatarUrl?: string | null;
+  note?: string | null;
+  status: 'PENDING' | 'APPROVED' | 'DECLINED';
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string | null;
+}
+
+export interface TrekDecisionResponse {
+  request: TrekJoinRequest;
+  conversationId?: number | null;
+}
+
+export interface TrekHostStatus {
+  trekHostEnabled: boolean;
+}
+
 export interface Conversation {
   id: number;
   showtimeId: number;
   eventTitle?: string | null;
+  eventPosterUrl?: string | null;
   venueName?: string | null;
   startsAt?: string | null;
   memberIds: number[];
+  participantNames?: string[] | null;
+  participantNameByUserId?: Record<string, string> | null;
   otherUserId?: number | null;
   otherUserName?: string | null;
   otherUserAvatarUrl?: string | null;
@@ -108,6 +147,7 @@ export interface Message {
   id: number;
   conversationId: number;
   senderId: number;
+  senderName?: string | null;
   text: string;
   createdAt: string;
 }

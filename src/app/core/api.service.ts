@@ -19,6 +19,10 @@ import {
   NotificationItem,
   Profile,
   Showtime,
+  TrekDecisionResponse,
+  TrekGroup,
+  TrekHostStatus,
+  TrekJoinRequest,
   User,
   Venue
 } from './models';
@@ -152,8 +156,21 @@ export class ApiService {
     return this.http.post<AdminCafeCreateResponse>(`${API_BASE}/admin/cafes`, body);
   }
 
-  joinLobby(showtimeId: number) {
-    return this.http.post(`${API_BASE}/lobbies/join`, { showtimeId });
+  createAdminTrekPlan(body: {
+    cityId: number;
+    venueName: string;
+    title?: string;
+    startsAt?: string;
+    address?: string;
+    postalCode?: string;
+  }): Observable<AdminCafeCreateResponse> {
+    return this.http.post<AdminCafeCreateResponse>(`${API_BASE}/admin/treks`, body);
+  }
+
+  joinLobby(showtimeId: number, silent = false) {
+    return this.http.post(`${API_BASE}/lobbies/join`, { showtimeId }, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
   }
 
   heartbeat(showtimeId: number, silent = false) {
@@ -166,9 +183,12 @@ export class ApiService {
     return this.http.post(`${API_BASE}/lobbies/leave`, { showtimeId });
   }
 
-  lobbyUsers(showtimeId: number, page = 0, size = 24): Observable<LobbyUsersResponse> {
+  lobbyUsers(showtimeId: number, page = 0, size = 24, silent = true): Observable<LobbyUsersResponse> {
     let params = new HttpParams().set('page', String(page)).set('size', String(size));
-    return this.http.get<LobbyUsersResponse>(`${API_BASE}/lobbies/${showtimeId}/users`, { params });
+    return this.http.get<LobbyUsersResponse>(`${API_BASE}/lobbies/${showtimeId}/users`, {
+      params,
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
   }
 
   getActiveLobbies(silent = false): Observable<ActiveLobby[]> {
@@ -239,5 +259,38 @@ export class ApiService {
 
   blockedUsers(): Observable<Profile[]> {
     return this.http.get<Profile[]>(`${API_BASE}/blocks`);
+  }
+
+  createTrekGroup(showtimeId: number, description?: string, maxMembers?: number): Observable<TrekGroup> {
+    return this.http.post<TrekGroup>(`${API_BASE}/treks/groups`, { showtimeId, description, maxMembers });
+  }
+
+  getTrekGroups(showtimeId: number): Observable<TrekGroup[]> {
+    const params = new HttpParams().set('showtimeId', String(showtimeId));
+    return this.http.get<TrekGroup[]>(`${API_BASE}/treks/groups`, { params });
+  }
+
+  getTrekHostStatus(): Observable<TrekHostStatus> {
+    return this.http.get<TrekHostStatus>(`${API_BASE}/treks/host/me`);
+  }
+
+  onboardTrekHost(): Observable<TrekHostStatus> {
+    return this.http.post<TrekHostStatus>(`${API_BASE}/treks/host/onboard`, {});
+  }
+
+  requestJoinTrekGroup(groupId: number, note?: string): Observable<TrekJoinRequest> {
+    return this.http.post<TrekJoinRequest>(`${API_BASE}/treks/groups/${groupId}/requests`, { note });
+  }
+
+  getPendingTrekJoinRequests(): Observable<TrekJoinRequest[]> {
+    return this.http.get<TrekJoinRequest[]>(`${API_BASE}/treks/requests/pending`);
+  }
+
+  approveTrekJoinRequest(requestId: number): Observable<TrekDecisionResponse> {
+    return this.http.post<TrekDecisionResponse>(`${API_BASE}/treks/requests/${requestId}/approve`, {});
+  }
+
+  declineTrekJoinRequest(requestId: number): Observable<TrekJoinRequest> {
+    return this.http.post<TrekJoinRequest>(`${API_BASE}/treks/requests/${requestId}/decline`, {});
   }
 }

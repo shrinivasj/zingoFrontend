@@ -25,13 +25,14 @@ import { Subscription, firstValueFrom } from 'rxjs';
         ></div>
         <div class="head-text">
           <div class="name">{{ displayName || 'Chat' }}</div>
-          <div class="meta">{{ conversation.eventTitle }} • {{ timeLabel(conversation.startsAt) }}</div>
+          <div class="meta">{{ headerMeta() }}</div>
         </div>
       </header>
 
       <div class="messages" #messagesList (scroll)="onMessagesScroll()">
         <div class="message" *ngFor="let msg of messages">
           <div class="bubble" [class.self]="msg.senderId === currentUserId">
+            <div class="sender" *ngIf="showSender(msg)">{{ senderNameFor(msg) }}</div>
             <span class="text">{{ msg.text }}</span>
             <span class="bubble-meta" [class.self]="msg.senderId === currentUserId">
               {{ timeLabel(msg.createdAt) }}<span class="ticks" *ngIf="msg.senderId === currentUserId"> ✓✓</span>
@@ -147,6 +148,12 @@ import { Subscription, firstValueFrom } from 'rxjs';
         word-break: break-word;
         white-space: pre-wrap;
       }
+      .sender {
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 4px;
+        color: rgba(15, 28, 36, 0.72);
+      }
       .bubble-meta {
         position: absolute;
         right: 10px;
@@ -229,6 +236,8 @@ export class ChatComponent implements OnInit, OnDestroy {
   subscription?: StompSubscription | null;
   avatarUrl = '';
   displayName = '';
+  participantLabel = '';
+  isGroupConversation = false;
   secureReady = false;
   secureMessage = 'Setting up end-to-end encryption...';
   private otherUserPublicKey: string | null = null;
@@ -377,8 +386,17 @@ export class ChatComponent implements OnInit, OnDestroy {
         return;
       }
 
-      this.displayName = this.conversation.otherUserName || 'Chat';
-      this.avatarUrl = this.conversation.otherUserAvatarUrl || '';
+      this.isGroupConversation = (this.conversation.memberIds?.length || 0) > 2 || (this.conversation.participantNames?.length || 0) > 1;
+      if (this.isGroupConversation) {
+        this.displayName = this.conversation.eventTitle || 'Trek Group';
+        const names = (this.conversation.participantNames || []).filter((name) => !!name);
+        this.participantLabel = names.length ? names.join(', ') : 'Group members';
+        this.avatarUrl = this.conversation.eventPosterUrl || '';
+      } else {
+        this.displayName = this.conversation.otherUserName || 'Chat';
+        this.participantLabel = this.conversation.eventTitle || '';
+        this.avatarUrl = this.conversation.otherUserAvatarUrl || '';
+      }
       this.otherUserPublicKey = this.conversation.otherUserE2eePublicKey || null;
       const messagesPromise = firstValueFrom(this.api.getMessages(this.conversationId));
 
@@ -485,5 +503,32 @@ export class ChatComponent implements OnInit, OnDestroy {
     }
     const timestamp = Date.parse(value);
     return Number.isNaN(timestamp) ? 0 : timestamp;
+  }
+
+  headerMeta() {
+    if (!this.conversation) {
+      return '';
+    }
+    const time = this.timeLabel(this.conversation.startsAt);
+    if (this.participantLabel && time) {
+      return `${this.participantLabel} • ${time}`;
+    }
+    return this.participantLabel || time || '';
+  }
+
+  showSender(message: Message) {
+    return this.isGroupConversation && message.senderId !== this.currentUserId;
+  }
+
+  senderNameFor(message: Message) {
+    const map = this.conversation?.participantNameByUserId || {};
+    const fromMap = map[String(message.senderId)];
+    if (fromMap && fromMap.trim()) {
+      return fromMap;
+    }
+    if (message.senderName && message.senderName.trim()) {
+      return message.senderName;
+    }
+    return 'Member';
   }
 }

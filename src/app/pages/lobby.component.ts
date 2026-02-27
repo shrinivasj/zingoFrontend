@@ -2,8 +2,9 @@ import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../core/api.service';
-import { LobbyUser } from '../core/models';
+import { LobbyUser, TrekGroup, TrekJoinRequest } from '../core/models';
 import { StompService } from '../core/stomp.service';
 import { ProfileCardDialogComponent } from '../components/profile-card.dialog';
 import { StompSubscription } from '@stomp/stompjs';
@@ -13,7 +14,7 @@ import { Subscription } from 'rxjs';
 @Component({
   selector: 'app-lobby',
   standalone: true,
-  imports: [CommonModule, MatDialogModule],
+  imports: [CommonModule, MatDialogModule, MatSnackBarModule],
   template: `
     <section class="lobby">
       <div class="top-actions">
@@ -22,10 +23,74 @@ import { Subscription } from 'rxjs';
       </div>
 
       <div class="header">
-        <h1>People going for this show</h1>
+        <h1>People in this lobby</h1>
         <p class="subtitle">Tap on someone to see their profile</p>
         <p class="joined">{{ liveCount }} people joined this lobby</p>
       </div>
+
+      <section class="trek-section">
+        <div class="trek-head">
+          <h2>Trek Groups</h2>
+          <button
+            class="trek-create-btn"
+            (click)="onboardAsTrekHost()"
+            *ngIf="!trekHostEnabled"
+            [disabled]="onboardingTrekHost"
+          >
+            {{ onboardingTrekHost ? 'Onboarding...' : 'Become Trek Leader' }}
+          </button>
+          <button
+            class="trek-create-btn"
+            *ngIf="trekHostEnabled"
+            (click)="createTrekGroup()"
+            [disabled]="creatingTrekGroup || hostGroupId !== null || (trekGroups.length > 0 && hostGroupId === null)"
+          >
+            {{ creatingTrekGroup ? 'Creating...' : hostGroupId !== null ? 'Group Created' : (trekGroups.length > 0 ? 'Group Exists' : 'Create Group') }}
+          </button>
+        </div>
+        <p class="trek-meta" *ngIf="!trekHostEnabled">
+          Onboard as trek leader first, then you can create and manage your own group.
+        </p>
+        <p class="trek-meta" *ngIf="trekActionMessage">{{ trekActionMessage }}</p>
+        <div class="trek-list" *ngIf="trekGroups.length; else noTrekGroups">
+          <div class="trek-row" *ngFor="let group of trekGroups">
+            <div class="trek-info">
+              <div class="trek-title">{{ group.hostDisplayName }}'s group</div>
+              <div class="trek-meta">{{ group.pendingRequests }} pending requests</div>
+            </div>
+            <button
+              class="trek-join-btn"
+              *ngIf="group.hostUserId !== currentUserId"
+              (click)="requestJoinGroup(group)"
+              [disabled]="requestingGroupIds.has(group.id)"
+            >
+              {{ requestingGroupIds.has(group.id) ? 'Requested' : 'Request Join' }}
+            </button>
+            <span class="trek-owner-tag" *ngIf="group.hostUserId === currentUserId">You host</span>
+          </div>
+        </div>
+        <ng-template #noTrekGroups>
+          <p class="trek-empty">No trek groups yet for this plan.</p>
+        </ng-template>
+      </section>
+
+      <section class="trek-section" *ngIf="pendingTrekRequests.length">
+        <div class="trek-head">
+          <h2>Join Requests</h2>
+        </div>
+        <div class="trek-list">
+          <div class="trek-row" *ngFor="let request of pendingTrekRequests">
+            <div class="trek-info">
+              <div class="trek-title">{{ request.requesterDisplayName }}</div>
+              <div class="trek-meta" *ngIf="request.note">{{ request.note }}</div>
+            </div>
+            <div class="trek-actions">
+              <button class="trek-accept" (click)="approveJoinRequest(request)" [disabled]="processingRequestIds.has(request.id)">Accept</button>
+              <button class="trek-decline" (click)="declineJoinRequest(request)" [disabled]="processingRequestIds.has(request.id)">Decline</button>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div class="orbit">
         <div class="orbit-ring"></div>
@@ -110,6 +175,96 @@ import { Subscription } from 'rxjs';
         color: #fc5054;
         font-weight: 600;
         font-size: 16px;
+      }
+      .trek-section {
+        margin-top: 14px;
+        border: 1px solid #ececec;
+        border-radius: 16px;
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }
+      .trek-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .trek-head h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+      .trek-create-btn {
+        border: none;
+        background: #111;
+        color: #fff;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .trek-create-btn:disabled {
+        opacity: 0.65;
+        cursor: default;
+      }
+      .trek-list {
+        display: grid;
+        gap: 8px;
+      }
+      .trek-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+      .trek-info {
+        display: grid;
+        gap: 2px;
+      }
+      .trek-title {
+        font-weight: 600;
+      }
+      .trek-meta {
+        color: rgba(0, 0, 0, 0.58);
+        font-size: 13px;
+      }
+      .trek-join-btn {
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        background: #fff;
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .trek-owner-tag {
+        color: #b52e32;
+        font-weight: 700;
+        font-size: 13px;
+      }
+      .trek-empty {
+        margin: 0;
+        color: rgba(0, 0, 0, 0.58);
+        font-size: 14px;
+      }
+      .trek-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .trek-accept,
+      .trek-decline {
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .trek-accept {
+        background: #111;
+        color: #fff;
+        border: none;
+      }
+      .trek-decline {
+        background: #fff;
+        color: #111;
+        border: 1px solid rgba(0, 0, 0, 0.2);
       }
       .orbit {
         position: relative;
@@ -268,6 +423,16 @@ export class LobbyComponent implements OnInit, OnDestroy {
   showtimeId!: number;
   users: LobbyUser[] = [];
   orbitUsers: LobbyUser[] = [];
+  trekGroups: TrekGroup[] = [];
+  pendingTrekRequests: TrekJoinRequest[] = [];
+  hostGroupId: number | null = null;
+  currentUserId: number | null = null;
+  trekHostEnabled = false;
+  onboardingTrekHost = false;
+  trekActionMessage = '';
+  creatingTrekGroup = false;
+  requestingGroupIds = new Set<number>();
+  processingRequestIds = new Set<number>();
   liveCount = 0;
   exiting = false;
   currentAvatarUrl = '';
@@ -283,7 +448,8 @@ export class LobbyComponent implements OnInit, OnDestroy {
     private stomp: StompService,
     private dialog: MatDialog,
     private router: Router,
-    private lobbyPresence: LobbyPresenceService
+    private lobbyPresence: LobbyPresenceService,
+    private snackBar: MatSnackBar
   ) {}
 
   ngOnInit() {
@@ -303,7 +469,9 @@ export class LobbyComponent implements OnInit, OnDestroy {
       this.liveCount = update.count ?? 0;
     });
     this.api.getProfile().subscribe((profile) => {
+      this.currentUserId = profile.userId;
       this.currentAvatarUrl = profile.avatarUrl || '';
+      this.reloadTrekData();
     });
     this.refreshUsers();
     this.refreshTimer = setInterval(() => this.refreshUsers(), 10000);
@@ -329,10 +497,144 @@ export class LobbyComponent implements OnInit, OnDestroy {
     });
   }
 
+  private reloadTrekData() {
+    this.api.getTrekHostStatus().subscribe({
+      next: (status) => {
+        this.trekHostEnabled = !!status?.trekHostEnabled;
+      },
+      error: () => {
+        this.trekHostEnabled = false;
+      }
+    });
+    this.api.getTrekGroups(this.showtimeId).subscribe((groups) => {
+      this.trekGroups = groups;
+      this.hostGroupId = this.currentUserId == null
+        ? null
+        : (groups.find((group) => group.hostUserId === this.currentUserId)?.id ?? null);
+    }, () => {
+      this.trekGroups = [];
+      this.hostGroupId = null;
+    });
+    this.api.getPendingTrekJoinRequests().subscribe((requests) => {
+      this.pendingTrekRequests = requests.filter((request) => request.showtimeId === this.showtimeId);
+    }, () => {
+      this.pendingTrekRequests = [];
+    });
+  }
+
+  onboardAsTrekHost() {
+    if (this.onboardingTrekHost || this.trekHostEnabled) {
+      return;
+    }
+    this.onboardingTrekHost = true;
+    this.trekActionMessage = '';
+    this.api.onboardTrekHost().subscribe({
+      next: () => {
+        this.onboardingTrekHost = false;
+        this.trekHostEnabled = true;
+        this.trekActionMessage = 'You are onboarded as a trek leader. Create your first group now.';
+      },
+      error: () => {
+        this.onboardingTrekHost = false;
+        this.trekActionMessage = 'Could not onboard right now. Please try again.';
+      }
+    });
+  }
+
+  createTrekGroup() {
+    if (!this.trekHostEnabled) {
+      this.trekActionMessage = 'Please complete trek leader onboarding first.';
+      return;
+    }
+    if (this.trekGroups.length > 0 && this.hostGroupId === null) {
+      this.trekActionMessage = 'A trek group already exists for this trek. Please request to join it.';
+      return;
+    }
+    if (this.creatingTrekGroup || this.hostGroupId !== null) {
+      return;
+    }
+    this.creatingTrekGroup = true;
+    this.trekActionMessage = '';
+    this.api.createTrekGroup(this.showtimeId).subscribe({
+      next: () => {
+        this.creatingTrekGroup = false;
+        this.trekActionMessage = 'Group created. You can now accept join requests.';
+        this.reloadTrekData();
+      },
+      error: () => {
+        this.creatingTrekGroup = false;
+        this.trekActionMessage = 'Could not create group. Make sure this is a trek plan.';
+      }
+    });
+  }
+
+  requestJoinGroup(group: TrekGroup) {
+    if (this.requestingGroupIds.has(group.id) || group.hostUserId === this.currentUserId) {
+      return;
+    }
+    this.requestingGroupIds.add(group.id);
+    this.api.requestJoinTrekGroup(group.id).subscribe({
+      complete: () => {
+        this.requestingGroupIds.delete(group.id);
+        this.reloadTrekData();
+      },
+      error: (error) => {
+        this.requestingGroupIds.delete(group.id);
+        const serverMessage = error?.error?.error || error?.error?.message;
+        this.snackBar.open(
+          typeof serverMessage === 'string' && serverMessage.trim()
+            ? serverMessage
+            : 'Could not submit join request',
+          'Dismiss',
+          { duration: 3000 }
+        );
+      }
+    });
+  }
+
+  approveJoinRequest(request: TrekJoinRequest) {
+    if (this.processingRequestIds.has(request.id)) {
+      return;
+    }
+    this.processingRequestIds.add(request.id);
+    this.api.approveTrekJoinRequest(request.id).subscribe({
+      next: (resp) => {
+        this.processingRequestIds.delete(request.id);
+        this.reloadTrekData();
+        if (resp?.conversationId) {
+          this.router.navigate(['/chat', resp.conversationId]);
+        }
+      },
+      error: () => {
+        this.processingRequestIds.delete(request.id);
+      }
+    });
+  }
+
+  declineJoinRequest(request: TrekJoinRequest) {
+    if (this.processingRequestIds.has(request.id)) {
+      return;
+    }
+    this.processingRequestIds.add(request.id);
+    this.api.declineTrekJoinRequest(request.id).subscribe({
+      complete: () => {
+        this.processingRequestIds.delete(request.id);
+        this.reloadTrekData();
+      },
+      error: () => {
+        this.processingRequestIds.delete(request.id);
+      }
+    });
+  }
+
   openProfile(user: LobbyUser) {
     this.dialog
       .open(ProfileCardDialogComponent, {
-        data: { user, showtimeId: this.showtimeId },
+        data: {
+          user,
+          showtimeId: this.showtimeId,
+          isGroupEvent: this.isGroupEventContext()
+        },
         width: '92vw',
         maxWidth: '420px',
         panelClass: 'profile-dialog-panel'
@@ -379,5 +681,9 @@ export class LobbyComponent implements OnInit, OnDestroy {
       this.refreshQueued = false;
       this.refreshUsers();
     }, 120);
+  }
+
+  private isGroupEventContext() {
+    return this.trekGroups.length > 0 || this.pendingTrekRequests.length > 0 || this.hostGroupId !== null;
   }
 }

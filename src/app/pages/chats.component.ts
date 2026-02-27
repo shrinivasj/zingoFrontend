@@ -28,7 +28,7 @@ import { StompSubscription } from '@stomp/stompjs';
               <div class="name">{{ nameFor(convo) }}</div>
               <div class="time">{{ timeLabel(convo.lastMessageAt || convo.startsAt) }}</div>
             </div>
-            <div class="movie">{{ convo.eventTitle || 'Movie' }}</div>
+            <div class="movie">{{ sublineFor(convo) }}</div>
             <div class="snippet">{{ snippetFor(convo) }}</div>
           </div>
         </a>
@@ -157,7 +157,7 @@ export class ChatsComponent implements OnInit, OnDestroy {
   }
 
   load() {
-    this.api.getConversations().subscribe((data) => {
+    this.api.getConversations(true).subscribe((data) => {
       this.conversations = this.sortConversations(data);
       this.syncSubscriptions();
     });
@@ -195,10 +195,16 @@ export class ChatsComponent implements OnInit, OnDestroy {
   }
 
   nameFor(convo: Conversation) {
+    if (this.isGroupChat(convo)) {
+      return convo.eventTitle || 'Trek Group';
+    }
     return convo.otherUserName || 'Someone';
   }
 
   avatarFor(convo: Conversation) {
+    if (this.isGroupChat(convo)) {
+      return convo.eventPosterUrl || '';
+    }
     return convo.otherUserAvatarUrl || '';
   }
 
@@ -211,6 +217,14 @@ export class ChatsComponent implements OnInit, OnDestroy {
       return convo.lastMessageText;
     }
     return 'Tap to start chatting';
+  }
+
+  sublineFor(convo: Conversation) {
+    if (this.isGroupChat(convo)) {
+      const names = (convo.participantNames || []).filter((name) => !!name);
+      return names.length ? names.join(', ') : 'Group members';
+    }
+    return convo.eventTitle || 'Movie';
   }
 
   timeLabel(value?: string | null) {
@@ -257,5 +271,9 @@ export class ChatsComponent implements OnInit, OnDestroy {
     }
     const timestamp = Date.parse(value);
     return Number.isNaN(timestamp) ? 0 : timestamp;
+  }
+
+  private isGroupChat(convo: Conversation) {
+    return (convo.memberIds?.length || 0) > 2 || (convo.participantNames?.length || 0) > 1;
   }
 }

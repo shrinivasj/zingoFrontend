@@ -29,7 +29,7 @@ import { StompSubscription } from '@stomp/stompjs';
             <div class="note-content">
               <div class="line-1">
                 <strong>{{ fromName(note) }}</strong>
-                wants to go to a movie with you
+                {{ messageText(note) }}
               </div>
               <div class="movie">{{ eventTitle(note) }}</div>
               <div class="meta">{{ whenText(note) }}</div>
@@ -42,6 +42,11 @@ import { StompSubscription } from '@stomp/stompjs';
             </button>
             <button class="btn pass" (click)="decline(note)" [disabled]="isBusy(note)">
               {{ isBusy(note) ? 'Working...' : 'Pass' }}
+            </button>
+          </div>
+          <div class="actions" *ngIf="canOpenTrekChat(note)">
+            <button class="btn accept" (click)="openTrekChat(note)">
+              Open Chat
             </button>
           </div>
         </div>
@@ -179,11 +184,44 @@ export class NotificationsComponent implements OnInit, OnDestroy {
   }
 
   eventTitle(note: NotificationItem) {
+    const payloadType = this.payloadType(note);
+    if (payloadType === 'TREK_JOIN_REQUEST') {
+      return note.payload?.['eventTitle'] || 'Trek join request';
+    }
+    if (payloadType === 'TREK_JOIN_APPROVED') {
+      return 'Your trek request was approved';
+    }
+    if (payloadType === 'TREK_JOIN_DECLINED') {
+      return 'Your trek request was declined';
+    }
     return note.payload?.['eventTitle'] || note.payload?.['title'] || 'Movie invite';
   }
 
   accept(note: NotificationItem) {
     if (this.isBusy(note)) return;
+    if (this.isTrekJoinRequest(note)) {
+      const requestId = this.extractTrekJoinRequestId(note);
+      if (!requestId) {
+        this.snackBar.open('This request cannot be processed (missing trek request id).', 'Dismiss', { duration: 3500 });
+        return;
+      }
+      this.busyNotificationIds.add(note.id);
+      this.api
+        .approveTrekJoinRequest(requestId)
+        .pipe(finalize(() => this.busyNotificationIds.delete(note.id)))
+        .subscribe({
+          next: (resp) => {
+            this.markHandled(note);
+            if (resp.conversationId) {
+              this.router.navigate(['/chat', resp.conversationId]);
+              return;
+            }
+            this.load();
+          },
+          error: (error) => this.handleActionError(error, note)
+        });
+      return;
+    }
     const inviteId = this.extractInviteId(note);
     if (!inviteId) {
       this.snackBar.open('This request cannot be processed (missing invite id).', 'Dismiss', { duration: 3500 });
@@ -210,6 +248,25 @@ export class NotificationsComponent implements OnInit, OnDestroy {
 
   decline(note: NotificationItem) {
     if (this.isBusy(note)) return;
+    if (this.isTrekJoinRequest(note)) {
+      const requestId = this.extractTrekJoinRequestId(note);
+      if (!requestId) {
+        this.snackBar.open('This request cannot be processed (missing trek request id).', 'Dismiss', { duration: 3500 });
+        return;
+      }
+      this.busyNotificationIds.add(note.id);
+      this.api
+        .declineTrekJoinRequest(requestId)
+        .pipe(finalize(() => this.busyNotificationIds.delete(note.id)))
+        .subscribe({
+          next: () => {
+            this.markHandled(note);
+            this.load();
+          },
+          error: (error) => this.handleActionError(error, note)
+        });
+      return;
+    }
     const inviteId = this.extractInviteId(note);
     if (!inviteId) {
       this.snackBar.open('This request cannot be processed (missing invite id).', 'Dismiss', { duration: 3500 });
@@ -265,7 +322,14 @@ export class NotificationsComponent implements OnInit, OnDestroy {
   }
 
   canRespond(note: NotificationItem) {
-    if (note.type !== 'INVITE' || !!note.readAt) {
+    if (!!note.readAt) {
+      return false;
+    }
+    if (this.isTrekJoinRequest(note)) {
+      const status = this.requestStatus(note);
+      return !status || status === 'PENDING';
+    }
+    if (note.type !== 'INVITE') {
       return false;
     }
     const status = this.inviteStatus(note);
@@ -296,6 +360,13 @@ export class NotificationsComponent implements OnInit, OnDestroy {
   }
 
   private isClosedInvite(note: NotificationItem) {
+    if (this.isTrekJoinRequest(note)) {
+      if (note.readAt) {
+        return true;
+      }
+      const status = this.requestStatus(note);
+      return !!status && status !== 'PENDING';
+    }
     if (note.type !== 'INVITE') {
       return false;
     }
@@ -315,6 +386,86 @@ export class NotificationsComponent implements OnInit, OnDestroy {
       return null;
     }
     return statusValue.toUpperCase();
+  }
+
+  canOpenTrekChat(note: NotificationItem) {
+    return this.isTrekJoinApproved(note);
+  }
+
+  openTrekChat(note: NotificationItem) {
+    const conversationId = this.extractConversationId(note);
+    if (!conversationId) {
+      this.snackBar.open('Conversation is not ready yet.', 'Dismiss', { duration: 2500 });
+      return;
+    }
+    this.markHandled(note);
+    this.router.navigate(['/chat', conversationId]);
+  }
+
+  private extractTrekJoinRequestId(note: NotificationItem): number | null {
+    const raw = note.payload?.['trekJoinRequestId'];
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return Math.trunc(raw);
+    }
+    if (typeof raw === 'string') {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        return Math.trunc(parsed);
+      }
+    }
+    return null;
+  }
+
+  messageText(note: NotificationItem) {
+    const payloadType = this.payloadType(note);
+    if (payloadType === 'TREK_JOIN_REQUEST') {
+      return 'requested to join your trek group';
+    }
+    if (payloadType === 'TREK_JOIN_APPROVED') {
+      return 'approved your trek request';
+    }
+    if (payloadType === 'TREK_JOIN_DECLINED') {
+      return 'declined your trek request';
+    }
+    return 'wants to go to a movie with you';
+  }
+
+  private payloadType(note: NotificationItem): string {
+    const raw = note.payload?.['type'];
+    return typeof raw === 'string' ? raw.toUpperCase() : '';
+  }
+
+  private isTrekJoinRequest(note: NotificationItem): boolean {
+    return note.type === 'SYSTEM' && this.payloadType(note) === 'TREK_JOIN_REQUEST';
+  }
+
+  private requestStatus(note: NotificationItem): string | null {
+    const statusValue = note.payload?.['requestStatus'];
+    if (typeof statusValue !== 'string') {
+      return null;
+    }
+    return statusValue.toUpperCase();
+  }
+
+  private extractConversationId(note: NotificationItem): number | null {
+    const raw = note.payload?.['conversationId'];
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return Math.trunc(raw);
+    }
+    if (typeof raw === 'string') {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        return Math.trunc(parsed);
+      }
+    }
+    return null;
+  }
+
+  private isTrekJoinApproved(note: NotificationItem): boolean {
+    if (note.readAt) {
+      return false;
+    }
+    return note.type === 'SYSTEM' && this.payloadType(note) === 'TREK_JOIN_APPROVED' && this.extractConversationId(note) != null;
   }
 
   private handleActionError(error: any, note: NotificationItem) {

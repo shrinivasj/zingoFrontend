@@ -81,6 +81,35 @@ import { AdminCafeCreateResponse, AdminConfigEntry, City, MovieSyncResponse } fr
       </section>
 
       <section class="panel">
+        <h2>Add Treks</h2>
+        <p class="hint">Add a trek venue. A default trek slot is created automatically so it appears in the app.</p>
+        <div class="grid">
+          <div>
+            <label>City</label>
+            <mat-form-field appearance="outline" class="field">
+              <mat-select [value]="trekCityId" (selectionChange)="trekCityId = $event.value">
+                <mat-option [value]="undefined">Select city</mat-option>
+                <mat-option *ngFor="let city of cities" [value]="city.id">{{ city.name }}</mat-option>
+              </mat-select>
+            </mat-form-field>
+          </div>
+          <div>
+            <label>Trek Name</label>
+            <input class="text-input" [value]="trekVenueName" (input)="onTrekVenueNameInput($event)" />
+          </div>
+        </div>
+        <div class="actions">
+          <button mat-flat-button color="primary" (click)="createTrekPlan()" [disabled]="creatingTrek">
+            {{ creatingTrek ? 'Adding...' : 'Add Trek' }}
+          </button>
+        </div>
+        <p class="error" *ngIf="trekCreateError">{{ trekCreateError }}</p>
+        <p class="success" *ngIf="trekCreateResult">
+          Trek added: {{ trekCreateResult.title }} (slot #{{ trekCreateResult.showtimeId }} created)
+        </p>
+      </section>
+
+      <section class="panel">
         <h2>Maintenance</h2>
         <p class="hint">Quick local maintenance actions.</p>
         <div class="actions">
@@ -257,6 +286,11 @@ export class AdminComponent implements OnInit {
   creatingCafe = false;
   cafeCreateError = '';
   cafeCreateResult: AdminCafeCreateResponse | null = null;
+  trekCityId?: number;
+  trekVenueName = '';
+  creatingTrek = false;
+  trekCreateError = '';
+  trekCreateResult: AdminCafeCreateResponse | null = null;
   configEntries: AdminConfigEntry[] = [];
   configDraftByKey: Record<string, string> = {};
   configError = '';
@@ -287,6 +321,12 @@ export class AdminComponent implements OnInit {
     const input = event.target as HTMLInputElement | null;
     this.cafeVenueName = input?.value ?? '';
     this.cafeCreateError = '';
+  }
+
+  onTrekVenueNameInput(event: Event) {
+    const input = event.target as HTMLInputElement | null;
+    this.trekVenueName = input?.value ?? '';
+    this.trekCreateError = '';
   }
 
   runMovieSync() {
@@ -337,6 +377,36 @@ export class AdminComponent implements OnInit {
       error: (error) => {
         this.creatingCafe = false;
         this.cafeCreateError = error?.error?.message || 'Failed to create cafe plan';
+      }
+    });
+  }
+
+  createTrekPlan() {
+    if (!this.trekCityId) {
+      this.trekCreateError = 'Select a city.';
+      this.trekCreateResult = null;
+      return;
+    }
+    if (!this.trekVenueName.trim()) {
+      this.trekCreateError = 'Enter trek name.';
+      this.trekCreateResult = null;
+      return;
+    }
+    this.creatingTrek = true;
+    this.trekCreateError = '';
+    this.trekCreateResult = null;
+    this.api.createAdminTrekPlan({
+      cityId: this.trekCityId,
+      venueName: this.trekVenueName.trim(),
+      title: this.trekVenueName.trim()
+    }).subscribe({
+      next: (response) => {
+        this.creatingTrek = false;
+        this.trekCreateResult = response;
+      },
+      error: (error) => {
+        this.creatingTrek = false;
+        this.trekCreateError = error?.error?.message || 'Failed to create trek plan';
       }
     });
   }

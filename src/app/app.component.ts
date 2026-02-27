@@ -227,7 +227,8 @@ export class AppComponent implements OnDestroy {
       }
       const id = conversation.id;
       activeIds.add(id);
-      this.conversationNameById.set(id, conversation.otherUserName || 'Someone');
+      const isGroup = (conversation.memberIds?.length || 0) > 2 || (conversation.participantNames?.length || 0) > 1;
+      this.conversationNameById.set(id, isGroup ? (conversation.eventTitle || 'Trek Group') : (conversation.otherUserName || 'Someone'));
       const lastMessageAt = this.parseTimestamp(conversation.lastMessageAt);
       if (lastMessageAt !== null) {
         this.latestMessageByConversation.set(id, lastMessageAt);

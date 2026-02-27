@@ -33,7 +33,7 @@ export class LobbyPresenceService {
     this.addActiveShowtime(showtimeId);
     this.startHeartbeat();
 
-    return this.api.joinLobby(showtimeId).pipe(
+    return this.api.joinLobby(showtimeId, true).pipe(
       catchError((error) => {
         this.removeActiveShowtime(showtimeId);
         return throwError(() => error);

@@ -7,6 +7,7 @@ import { LobbyUser } from '../core/models';
 interface ProfileDialogData {
   user: LobbyUser;
   showtimeId: number;
+  isGroupEvent?: boolean;
 }
 
 @Component({
@@ -25,7 +26,7 @@ interface ProfileDialogData {
 
       <div class="body">
         <h2>{{ data.user.displayName }}</h2>
-        <p class="bio">{{ data.user.bioShort || 'Love thriller movies and good conversation' }}</p>
+        <p class="bio">{{ data.user.bioShort || defaultBio }}</p>
 
         <div class="section">
           <div class="section-title">Personality</div>
@@ -34,14 +35,17 @@ interface ProfileDialogData {
           </div>
         </div>
 
-        <div class="section">
+        <div class="section" *ngIf="!isGroupEvent">
           <div class="section-title">Favorite Genres</div>
           <div class="chip-row">
             <span class="chip outlined" *ngFor="let genre of favoriteGenres">{{ genre }}</span>
           </div>
         </div>
 
-        <button class="cta" (click)="invite()">Go to this movie together</button>
+        <button class="cta" *ngIf="!isGroupEvent" (click)="invite()">Go to this movie together</button>
+        <div class="group-note" *ngIf="isGroupEvent">
+          Use trek groups in the lobby to request joins and coordinate.
+        </div>
 
         <div class="footer-actions">
           <button class="ghost" (click)="block()">
@@ -142,6 +146,14 @@ interface ProfileDialogData {
         justify-content: space-between;
         margin-top: 4px;
       }
+      .group-note {
+        border: 1px solid #ececec;
+        background: #fafafa;
+        color: rgba(0, 0, 0, 0.65);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
       .ghost {
         background: transparent;
         border: none;
@@ -162,12 +174,18 @@ export class ProfileCardDialogComponent {
   initials: string;
   personalityTags: string[];
   favoriteGenres = ['Thriller', 'Drama', 'Indie'];
+  isGroupEvent: boolean;
+  defaultBio: string;
 
   constructor(
     @Inject(MAT_DIALOG_DATA) public data: ProfileDialogData,
     private dialogRef: MatDialogRef<ProfileCardDialogComponent>,
     private api: ApiService
   ) {
+    this.isGroupEvent = !!data.isGroupEvent;
+    this.defaultBio = this.isGroupEvent
+      ? 'Enjoys trekking, meeting people, and planning great outdoor days.'
+      : 'Love thriller movies and good conversation';
     this.initials = data.user.displayName
       .split(' ')
       .map((part) => part[0])

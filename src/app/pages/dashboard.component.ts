@@ -22,7 +22,7 @@ import { ActiveLobby, City, EventItem, Showtime, Venue } from '../core/models';
 import { ShowtimesDialogComponent } from '../components/showtimes.dialog';
 import { LobbyPresenceService } from '../core/lobby-presence.service';
 
-type PlanKind = 'MOVIE' | 'CAFE';
+type PlanKind = 'MOVIE' | 'CAFE' | 'TREK';
 
 @Component({
   selector: 'app-dashboard',
@@ -42,11 +42,6 @@ type PlanKind = 'MOVIE' | 'CAFE';
         <div class="logo">
           <img src="assets/aurofly-logo.png" alt="aurofly" />
         </div>
-        <button class="menu-btn" aria-label="Menu">
-          <span></span>
-          <span></span>
-          <span></span>
-        </button>
       </header>
 
       <h1>Pick a {{ planTypeLabelLower() }}, find people to go together</h1>
@@ -55,6 +50,7 @@ type PlanKind = 'MOVIE' | 'CAFE';
       <div class="mode-toggle" role="tablist" aria-label="Plan type">
         <button type="button" [class.active]="selectedPlanType === 'MOVIE'" (click)="setPlanType('MOVIE')">Movie</button>
         <button type="button" [class.active]="selectedPlanType === 'CAFE'" (click)="setPlanType('CAFE')">Cafe</button>
+        <button type="button" [class.active]="selectedPlanType === 'TREK'" (click)="setPlanType('TREK')">Trek</button>
       </div>
 
       <ng-container *ngIf="activeLobbies$ | async as activeLobbies">
@@ -142,7 +138,7 @@ type PlanKind = 'MOVIE' | 'CAFE';
       }
       .page-header {
         display: flex;
-        justify-content: space-between;
+        justify-content: center;
         align-items: center;
         margin-bottom: 22px;
       }
@@ -157,23 +153,6 @@ type PlanKind = 'MOVIE' | 'CAFE';
         max-width: 280px;
         display: block;
       }
-      .menu-btn {
-        width: 44px;
-        height: 44px;
-        border: none;
-        background: transparent;
-        display: grid;
-        gap: 6px;
-        padding: 8px;
-        cursor: pointer;
-      }
-      .menu-btn span {
-        display: block;
-        height: 3px;
-        width: 100%;
-        background: #111;
-        border-radius: 999px;
-      }
       h1 {
         font-size: 30px;
         margin: 0 0 10px;
@@ -187,7 +166,7 @@ type PlanKind = 'MOVIE' | 'CAFE';
       }
       .mode-toggle {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr 1fr 1fr;
         gap: 8px;
         margin-bottom: 18px;
         background: #f2f4f7;
@@ -439,9 +418,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
     map(([venues, venueId, planType]) => {
       const venueName = venues.find((venue) => venue.id === venueId)?.name;
       if (venueName) {
-        return planType === 'CAFE' ? `Cafe plans at ${venueName}` : `Movies at ${venueName}`;
+        if (planType === 'CAFE') return `Cafe plans at ${venueName}`;
+        if (planType === 'TREK') return `Treks at ${venueName}`;
+        return `Movies at ${venueName}`;
       }
-      return planType === 'CAFE' ? 'Pick a cafe to see cafe plans' : 'Pick a theatre to see movies';
+      if (planType === 'CAFE') return 'Pick a cafe to see cafe plans';
+      if (planType === 'TREK') return 'Pick a trail to see treks';
+      return 'Pick a theatre to see movies';
     }),
     shareReplay({ bufferSize: 1, refCount: false })
   );
@@ -544,19 +527,27 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   planTypeLabelLower() {
-    return this.selectedPlanType === 'CAFE' ? 'cafe' : 'movie';
+    if (this.selectedPlanType === 'CAFE') return 'cafe';
+    if (this.selectedPlanType === 'TREK') return 'trek';
+    return 'movie';
   }
 
   placeLabel() {
-    return this.selectedPlanType === 'CAFE' ? 'Cafe' : 'Theatre';
+    if (this.selectedPlanType === 'CAFE') return 'Cafe';
+    if (this.selectedPlanType === 'TREK') return 'Trail';
+    return 'Theatre';
   }
 
   defaultSectionTitle() {
-    return this.selectedPlanType === 'CAFE' ? 'Pick a cafe to see cafe plans' : 'Pick a theatre to see movies';
+    if (this.selectedPlanType === 'CAFE') return 'Pick a cafe to see cafe plans';
+    if (this.selectedPlanType === 'TREK') return 'Pick a trail to see treks';
+    return 'Pick a theatre to see movies';
   }
 
   eventTypeLabel(type: EventItem['type']) {
-    return type === 'CAFE' ? 'Cafe meetup' : 'Movie';
+    if (type === 'CAFE') return 'Cafe meetup';
+    if (type === 'TREK') return 'Trek';
+    return 'Movie';
   }
 
   private setCity(cityId: number) {
