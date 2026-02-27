@@ -26,14 +26,16 @@ Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To u
 
 To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.io/cli) page.
 
-## CI: Build APK and upload to Google Drive
+## CI: Build APK artifact
 Workflow file:
 - `.github/workflows/android-apk-to-drive.yml`
 
-Required GitHub repository secrets:
-- `GDRIVE_SERVICE_ACCOUNT_JSON`: Full service-account JSON key with Drive access.
-- `GDRIVE_FOLDER_ID` or `GDRIVE_FOLDER_LINK`: Target Google Drive folder.
+What it does:
+- Builds Android debug APK in CI
+- Uploads APK as GitHub Actions artifact (`app-debug-apk`)
 
-Notes:
-- Share the Drive folder with the service-account email.
-- Workflow runs on push to `main` (frontend changes) and can be triggered manually.
+How to download:
+- Open the workflow run in GitHub Actions
+- Download artifact: `app-debug-apk`
+
+No Google Drive secrets are required.
