@@ -57,6 +57,7 @@ export interface LobbyUsersResponse {
   showtimeId: number;
   total: number;
   users: LobbyUser[];
+  eventType?: EventItem['type'] | null;
 }
 
 export interface ActiveLobby {
@@ -186,9 +187,43 @@ export interface AdminCafeCreateResponse {
   title: string;
   showtimeId: number;
   startsAt: string;
+  address?: string | null;
+  postalCode?: string | null;
+  type?: EventItem['type'] | null;
   venueCreated: boolean;
   eventCreated: boolean;
   showtimeCreated: boolean;
+}
+
+export interface AdminPlanListResponse {
+  plans: AdminCafeCreateResponse[];
+}
+
+export interface AdminSyncRunItem {
+  cityName?: string | null;
+  postalCode?: string | null;
+  daysRequested?: number | null;
+  venuesUpserted: number;
+  eventsUpserted: number;
+  showtimesUpserted: number;
+  status: 'SUCCESS' | 'NO_DATA' | string;
+  createdAt: string;
+}
+
+export interface AdminActivityItem {
+  actionType: string;
+  title: string;
+  detail?: string | null;
+  createdAt: string;
+}
+
+export interface AdminDashboardResponse {
+  cityCount: number;
+  cafePlanCount: number;
+  trekPlanCount: number;
+  movieShowtimeCount: number;
+  recentSyncs: AdminSyncRunItem[];
+  recentActivities: AdminActivityItem[];
 }
 
 export type ScrapeSyncResponse = MovieSyncResponse;

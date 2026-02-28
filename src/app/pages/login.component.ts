@@ -11,6 +11,8 @@ import { AuthService } from '../core/auth.service';
 import { ApiService } from '../core/api.service';
 import { E2eeService } from '../core/e2ee.service';
 
+type LoginMode = 'password' | 'otp';
+
 @Component({
   selector: 'app-login',
   standalone: true,
@@ -28,9 +30,29 @@ import { E2eeService } from '../core/e2ee.service';
   ],
   template: `
     <div class="auth-shell">
+      <div class="bg-orb orb-1" aria-hidden="true"></div>
+      <div class="bg-orb orb-2" aria-hidden="true"></div>
+      <div class="bg-orb orb-3" aria-hidden="true"></div>
+
       <div class="auth-card">
-        <img class="logo" src="assets/aurofly-logo.png" alt="aurofly" />
-        <form [formGroup]="form" (ngSubmit)="submit()">
+        <div class="hero">
+          <img class="logo" src="assets/aurofly-logo.png" alt="aurofly" />
+          <p class="eyebrow">Plan together, not alone</p>
+          <h1>Welcome back</h1>
+          <p class="hero-copy">Jump into lobbies, groups, and chats already waiting for you.</p>
+          <div class="chips">
+            <span>Live lobby</span>
+            <span>Instant group chat</span>
+            <span>Verified plans</span>
+          </div>
+        </div>
+
+        <div class="mode-switch">
+          <button type="button" [class.active]="mode === 'password'" (click)="setMode('password')">Password</button>
+          <button type="button" [class.active]="mode === 'otp'" (click)="setMode('otp')">Email code</button>
+        </div>
+
+        <form *ngIf="mode === 'password'" [formGroup]="form" (ngSubmit)="submitPassword()">
           <mat-form-field appearance="outline" class="field">
             <mat-label>Email</mat-label>
             <input matInput formControlName="email" type="email" name="email" autocomplete="email" />
@@ -55,10 +77,38 @@ import { E2eeService } from '../core/e2ee.service';
             </button>
           </mat-form-field>
           <button class="cta" type="submit" [disabled]="form.invalid || loading">
-            Login
+            {{ loading ? 'Signing in...' : 'Login' }}
           </button>
-          <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
         </form>
+
+        <form *ngIf="mode === 'otp'" [formGroup]="otpForm" (ngSubmit)="otpStep === 'request' ? requestOtp() : verifyOtp()">
+          <mat-form-field appearance="outline" class="field">
+            <mat-label>Email</mat-label>
+            <input matInput formControlName="email" type="email" name="otpEmail" autocomplete="email" />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="field" *ngIf="otpStep === 'verify'">
+            <mat-label>6-digit code</mat-label>
+            <input matInput formControlName="code" inputmode="numeric" maxlength="6" />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="field" *ngIf="otpStep === 'verify'">
+            <mat-label>Display name (only for new users)</mat-label>
+            <input matInput formControlName="displayName" maxlength="80" />
+          </mat-form-field>
+
+          <button class="cta" type="submit" [disabled]="otpLoading || otpEmailInvalid() || (otpStep === 'verify' && otpCodeInvalid())">
+            {{ otpLoading ? (otpStep === 'request' ? 'Sending code...' : 'Verifying...') : (otpStep === 'request' ? 'Send code' : 'Verify and continue') }}
+          </button>
+
+          <button class="secondary-btn" *ngIf="otpStep === 'verify'" type="button" (click)="requestOtp()" [disabled]="otpLoading">
+            Resend code
+          </button>
+
+          <p class="otp-note" *ngIf="otpMessage">{{ otpMessage }}</p>
+          <p class="otp-note dev-code" *ngIf="devOtpCode">Dev code: {{ devOtpCode }}</p>
+        </form>
+
+        <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
+
         <div class="divider">
           <span>or</span>
         </div>
@@ -81,73 +131,154 @@ import { E2eeService } from '../core/e2ee.service';
         display: none;
       }
       .auth-shell {
+        position: relative;
         height: 100%;
         display: flex;
         justify-content: center;
         align-items: center;
-        padding: 32px 20px;
-        background: #ffffff;
+        padding: 24px 16px;
+        background: linear-gradient(160deg, #faf8f5 0%, #f6f2ec 46%, #f2eee8 100%);
         box-sizing: border-box;
         overflow: hidden;
       }
       .auth-card {
-        width: min(360px, 100%);
+        position: relative;
+        width: min(390px, 100%);
         display: grid;
-        gap: 18px;
-        padding: 32px 26px 28px;
+        gap: 16px;
+        padding: 20px 18px 22px;
         border-radius: 28px;
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid rgba(255, 255, 255, 0.7);
-        box-shadow: 0 24px 60px rgba(224, 30, 90, 0.15);
-        justify-items: center;
-        text-align: center;
+        background: rgba(255, 255, 255, 0.88);
+        border: 1px solid rgba(255, 255, 255, 0.75);
+        box-shadow:
+          0 24px 60px rgba(56, 42, 26, 0.12),
+          0 2px 10px rgba(0, 0, 0, 0.05);
+        backdrop-filter: blur(14px);
+      }
+      .hero {
+        background: linear-gradient(130deg, rgba(230, 170, 118, 0.16), rgba(201, 145, 96, 0.1));
+        border-radius: 20px;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.65);
+      }
+      .eyebrow {
+        margin: 4px 0 6px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8b5e34;
+      }
+      h1 {
+        margin: 0;
+        font-size: 29px;
+        line-height: 1.1;
+        font-weight: 800;
+        color: #1f1320;
+      }
+      .hero-copy {
+        margin: 8px 0 0;
+        font-size: 14px;
+        color: rgba(31, 19, 32, 0.72);
+      }
+      .chips {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .chips span {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: #7b5531;
+        background: rgba(255, 255, 255, 0.8);
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(123, 85, 49, 0.16);
+      }
+      .mode-switch {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        background: rgba(88, 60, 34, 0.06);
+        border-radius: 14px;
+        padding: 4px;
+      }
+      .mode-switch button {
+        border: none;
+        background: transparent;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-weight: 700;
+        color: rgba(31, 19, 32, 0.6);
+        cursor: pointer;
+      }
+      .mode-switch button.active {
+        background: #ffffff;
+        color: #1f1320;
+        box-shadow: 0 4px 14px rgba(56, 42, 26, 0.08);
       }
       .auth-card form,
       .auth-card .divider,
       .auth-card .google-btn,
       .auth-card .muted {
         width: 100%;
-        text-align: left;
-      }
-      .auth-card .muted {
-        text-align: center;
       }
       form {
         display: grid;
-        gap: 12px;
+        gap: 10px;
       }
       .logo {
-        height: 156px;
+        height: 60px;
         width: auto;
-        max-width: 320px;
+        max-width: 180px;
         display: block;
-        margin-bottom: 6px;
-        filter: drop-shadow(0 10px 24px rgba(224, 30, 90, 0.2));
+        margin-bottom: 8px;
+        filter: drop-shadow(0 8px 14px rgba(181, 101, 54, 0.18));
       }
       .field {
         background: #fff;
-        border-radius: 18px;
+        border-radius: 14px;
       }
-      .cta {
-        margin-top: 8px;
+      .cta,
+      .secondary-btn {
         width: 100%;
         border: none;
-        padding: 16px;
-        border-radius: 18px;
+        padding: 14px;
+        border-radius: 14px;
         font-size: 16px;
-        font-weight: 600;
-        color: #fff;
-        background: #ff4d4f;
+        font-weight: 700;
         cursor: pointer;
       }
-      .cta:disabled {
-        opacity: 0.6;
+      .cta {
+        margin-top: 6px;
+        color: #fff;
+        background: linear-gradient(90deg, #ef7d4e 0%, #d8693d 100%);
+        box-shadow: 0 12px 24px rgba(185, 95, 49, 0.28);
+      }
+      .secondary-btn {
+        background: rgba(88, 60, 34, 0.08);
+        color: #5b3d25;
+      }
+      .cta:disabled,
+      .secondary-btn:disabled {
+        opacity: 0.68;
         cursor: not-allowed;
       }
       .error {
-        margin: 4px 0 0;
+        margin: 0;
         color: #d92d20;
         font-size: 13px;
+      }
+      .otp-note {
+        margin: 0;
+        font-size: 13px;
+        color: rgba(31, 19, 32, 0.68);
+      }
+      .otp-note.dev-code {
+        font-weight: 700;
+        color: #8b5e34;
       }
       .divider {
         display: grid;
@@ -165,9 +296,9 @@ import { E2eeService } from '../core/e2ee.service';
       }
       .google-btn {
         width: 100%;
-        padding: 16px;
-        border-radius: 18px;
-        border: 1.5px solid #111;
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(0, 0, 0, 0.18);
         background: #fff;
         font-weight: 600;
         display: flex;
@@ -178,59 +309,71 @@ import { E2eeService } from '../core/e2ee.service';
         box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
       }
       .g {
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         border-radius: 50%;
         background: #f5f5f5;
         display: grid;
         place-items: center;
         font-weight: 700;
         color: #4285f4;
+        font-size: 13px;
       }
-
-      .auth-shell {
-        position: relative;
-        overflow: hidden;
+      .muted {
+        margin: 0;
+        text-align: center;
+        color: rgba(0, 0, 0, 0.58);
+        font-size: 14px;
       }
-
-      .auth-shell::before,
-      .auth-shell::after {
-        content: '';
+      .muted a {
+        color: #b25d31;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      .bg-orb {
         position: absolute;
-        border-radius: 50%;
-        filter: blur(0);
-        opacity: 0.35;
+        border-radius: 999px;
         pointer-events: none;
+        filter: blur(2px);
+        opacity: 0.55;
       }
-
-      .auth-shell::before {
-        width: 240px;
-        height: 240px;
-        background: radial-gradient(circle, rgba(255, 77, 79, 0.25), transparent 70%);
-        top: -60px;
-        left: -80px;
-      }
-
-      .auth-shell::after {
+      .orb-1 {
         width: 280px;
         height: 280px;
-        background: radial-gradient(circle, rgba(255, 142, 58, 0.25), transparent 70%);
-        bottom: -120px;
-        right: -80px;
+        top: -80px;
+        left: -120px;
+        background: radial-gradient(circle, rgba(232, 170, 113, 0.35), transparent 70%);
       }
-
+      .orb-2 {
+        width: 360px;
+        height: 360px;
+        bottom: -170px;
+        right: -120px;
+        background: radial-gradient(circle, rgba(216, 157, 104, 0.30), transparent 70%);
+      }
+      .orb-3 {
+        width: 220px;
+        height: 220px;
+        top: 30%;
+        right: -80px;
+        background: radial-gradient(circle, rgba(191, 133, 83, 0.22), transparent 72%);
+      }
       :host ::ng-deep .mdc-text-field--outlined {
-        border-radius: 18px;
+        border-radius: 14px;
         height: 56px;
       }
-
       :host ::ng-deep .mdc-notched-outline__leading,
       :host ::ng-deep .mdc-notched-outline__trailing {
         border-color: rgba(0, 0, 0, 0.12) !important;
       }
-
       :host ::ng-deep .mdc-floating-label {
         color: #9b9b9b !important;
+      }
+      @media (min-width: 640px) {
+        .auth-card {
+          padding: 24px;
+          gap: 18px;
+        }
       }
     `
   ]
@@ -238,12 +381,22 @@ import { E2eeService } from '../core/e2ee.service';
 export class LoginComponent implements OnInit {
   private readonly authTraceEnabled = true;
   loading = false;
+  otpLoading = false;
   showPassword = false;
   redirecting = false;
   errorMessage = '';
+  mode: LoginMode = 'password';
+  otpStep: 'request' | 'verify' = 'request';
+  otpMessage = '';
+  devOtpCode: string | null = null;
   form = this.fb.group({
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.required]]
+  });
+  otpForm = this.fb.group({
+    email: ['', [Validators.required, Validators.email]],
+    code: ['', [Validators.minLength(6), Validators.maxLength(6)]],
+    displayName: ['', [Validators.maxLength(80)]]
   });
 
   constructor(
@@ -263,7 +416,12 @@ export class LoginComponent implements OnInit {
     }
   }
 
-  submit() {
+  setMode(mode: LoginMode) {
+    this.mode = mode;
+    this.errorMessage = '';
+  }
+
+  submitPassword() {
     this.errorMessage = '';
     const email = (this.form.value.email ?? '').trim();
     const password = (this.form.value.password ?? '').trim();
@@ -288,6 +446,65 @@ export class LoginComponent implements OnInit {
         this.errorMessage = err?.error?.error || err?.error?.message || 'Login failed. Please try again.';
       }
     });
+  }
+
+  requestOtp() {
+    this.errorMessage = '';
+    this.otpMessage = '';
+    this.devOtpCode = null;
+    const email = (this.otpForm.value.email ?? '').trim();
+    this.otpForm.patchValue({ email }, { emitEvent: false });
+    if (this.otpEmailInvalid()) {
+      this.otpForm.controls.email.markAsTouched();
+      return;
+    }
+    this.otpLoading = true;
+    this.auth.requestEmailOtp(email!).subscribe({
+      next: (resp) => {
+        this.otpLoading = false;
+        this.otpStep = 'verify';
+        this.otpMessage = `Code sent to ${resp.email}. It expires in ${Math.round(resp.expiresInSeconds / 60)} minutes.`;
+        this.devOtpCode = resp.devCode || null;
+      },
+      error: (err) => {
+        this.otpLoading = false;
+        this.errorMessage = err?.error?.error || err?.error?.message || 'Could not send code.';
+      }
+    });
+  }
+
+  verifyOtp() {
+    this.errorMessage = '';
+    this.otpMessage = '';
+    const email = (this.otpForm.value.email ?? '').trim();
+    const code = (this.otpForm.value.code ?? '').trim();
+    const displayName = (this.otpForm.value.displayName ?? '').trim();
+    this.otpForm.patchValue({ email, code, displayName }, { emitEvent: false });
+    if (this.otpEmailInvalid() || this.otpCodeInvalid()) {
+      this.otpForm.markAllAsTouched();
+      return;
+    }
+    this.otpLoading = true;
+    this.auth.verifyEmailOtp(email!, code!, displayName || undefined).subscribe({
+      next: () => {
+        this.otpLoading = false;
+        this.redirecting = true;
+        this.redirectToDashboard();
+      },
+      error: (err) => {
+        this.otpLoading = false;
+        this.errorMessage = err?.error?.error || err?.error?.message || 'Could not verify code.';
+      }
+    });
+  }
+
+  otpEmailInvalid() {
+    return !!this.otpForm.controls.email.invalid;
+  }
+
+  otpCodeInvalid() {
+    const code = (this.otpForm.value.code ?? '').trim();
+    return code.length !== 6;
   }
 
   togglePassword() {
@@ -325,7 +542,6 @@ export class LoginComponent implements OnInit {
   private redirectToDashboard() {
     this.router.navigateByUrl('/dashboard', { replaceUrl: true }).then((navigated) => {
       this.traceAuth('router redirect result', { navigated, url: this.router.url });
-      // Fallback for cases where router navigation completes but auth view remains mounted.
       queueMicrotask(() => {
         if (this.router.url.startsWith('/login') || this.router.url.startsWith('/register')) {
           this.traceAuth('forcing hard redirect fallback', { to: '/dashboard' });

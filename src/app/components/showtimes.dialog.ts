@@ -2,13 +2,14 @@ import { Component, Inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
-import { Showtime } from '../core/models';
+import { EventItem, Showtime } from '../core/models';
 
 interface ShowtimesDialogData {
   showtimes: Showtime[];
   eventTitle?: string;
   venueName?: string;
   eventPosterUrl?: string | null;
+  eventType?: EventItem['type'] | null;
 }
 
 @Component({
@@ -28,20 +29,25 @@ interface ShowtimesDialogData {
         ></div>
       </div>
       <div class="body">
-        <h2 class="title">{{ data.eventTitle || 'Showtimes' }}</h2>
-        <p class="subtitle">{{ data.venueName || 'Select a showtime to join' }}</p>
+        <h2 class="title">{{ data.eventTitle || fallbackTitle() }}</h2>
+        <p class="subtitle">{{ data.venueName || fallbackSubtitle() }}</p>
 
         <div class="showtime-list" *ngIf="data.showtimes.length; else emptyState">
           <div class="showtime-card" *ngFor="let showtime of data.showtimes">
-            <div>
+            <div class="details" *ngIf="showsSchedule(); else nonMovieDetails">
               <div class="time">{{ formatTime(showtime.startsAt) }}</div>
-              <div class="joined">{{ joinedCount(showtime) }} people joined</div>
             </div>
-            <button mat-flat-button class="join-btn" (click)="join(showtime.id)">Join Lobby</button>
+            <ng-template #nonMovieDetails>
+              <div class="details non-movie-details">
+                <div class="label">{{ planLabel() }}</div>
+                <div class="joined" *ngIf="data.venueName">{{ data.venueName }}</div>
+              </div>
+            </ng-template>
+            <button mat-flat-button class="join-btn" (click)="join(showtime.id)">{{ joinCta() }}</button>
           </div>
         </div>
         <ng-template #emptyState>
-          <p class="empty muted">No showtimes available.</p>
+          <p class="empty muted">{{ emptyLabel() }}</p>
         </ng-template>
       </div>
     </div>
@@ -125,7 +131,11 @@ interface ShowtimesDialogData {
         gap: 16px;
         background: #ffffff;
       }
-      .time {
+      .details {
+        min-width: 0;
+      }
+      .time,
+      .label {
         font-size: 20px;
         font-weight: 700;
       }
@@ -134,6 +144,9 @@ interface ShowtimesDialogData {
         font-size: 15px;
         margin-top: 4px;
       }
+      .non-movie-details .label {
+        font-size: 18px;
+      }
       .join-btn {
         background: #ff4d4f !important;
         color: #ffffff !important;
@@ -141,6 +154,7 @@ interface ShowtimesDialogData {
         padding: 10px 18px;
         font-weight: 600;
         box-shadow: none;
+        white-space: nowrap;
       }
       :host ::ng-deep .join-btn.mat-mdc-unelevated-button .mdc-button__label {
         color: #ffffff;
@@ -168,13 +182,38 @@ export class ShowtimesDialogComponent {
     this.dialogRef.close();
   }
 
+  showsSchedule() {
+    return this.data.eventType === 'MOVIE';
+  }
+
+  fallbackTitle() {
+    return this.showsSchedule() ? 'Showtimes' : 'Plan options';
+  }
+
+  fallbackSubtitle() {
+    return this.showsSchedule() ? 'Select a showtime to join' : 'Pick a plan to join the lobby';
+  }
+
+  planLabel() {
+    if (this.data.eventType === 'TREK') return 'Trek lobby';
+    if (this.data.eventType === 'CAFE') return 'Cafe plan';
+    return 'Join plan';
+  }
+
+  joinCta() {
+    if (this.data.eventType === 'TREK') return 'Join Trek';
+    if (this.data.eventType === 'CAFE') return 'Join Cafe';
+    return 'Join Lobby';
+  }
+
+  emptyLabel() {
+    if (this.data.eventType === 'TREK') return 'No trek plans available.';
+    if (this.data.eventType === 'CAFE') return 'No cafe plans available.';
+    return 'No showtimes available.';
+  }
+
   formatTime(value: string) {
     return new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
 
-  joinedCount(showtime: Showtime) {
-    const start = new Date(showtime.startsAt);
-    const seed = showtime.id * 37 + start.getHours() * 5 + start.getMinutes();
-    return (seed % 22) + 6;
-  }
 }

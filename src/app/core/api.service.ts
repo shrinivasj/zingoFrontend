@@ -5,9 +5,11 @@ import {
   City,
   Conversation,
   AdminStatus,
+  AdminDashboardResponse,
   AdminConfigResponse,
   AdminConfigEntry,
   AdminCafeCreateResponse,
+  AdminPlanListResponse,
   ActiveLobby,
   EventItem,
   IcebreakerResponse,
@@ -40,15 +42,40 @@ export class ApiService {
       email,
       password,
       displayName
+    }, {
+      context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
     });
   }
 
   login(email: string, password: string): Observable<{ token: string; user: User }> {
-    return this.http.post<{ token: string; user: User }>(`${API_BASE}/auth/login`, { email, password });
+    return this.http.post<{ token: string; user: User }>(`${API_BASE}/auth/login`, { email, password }, {
+      context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
+    });
   }
 
   me(): Observable<User> {
     return this.http.get<User>(`${API_BASE}/auth/me`);
+  }
+
+
+  requestEmailOtp(email: string): Observable<{ email: string; expiresInSeconds: number; resendInSeconds: number; devCode?: string | null }> {
+    return this.http.post<{ email: string; expiresInSeconds: number; resendInSeconds: number; devCode?: string | null }>(
+      `${API_BASE}/auth/email-otp/request`,
+      { email },
+      {
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
+      }
+    );
+  }
+
+  verifyEmailOtp(email: string, code: string, displayName?: string): Observable<{ token: string; user: User }> {
+    return this.http.post<{ token: string; user: User }>(`${API_BASE}/auth/email-otp/verify`, {
+      email,
+      code,
+      displayName
+    }, {
+      context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
+    });
   }
 
   getProfile(): Observable<Profile> {
@@ -135,6 +162,12 @@ export class ApiService {
     });
   }
 
+  getAdminDashboard(silent = true): Observable<AdminDashboardResponse> {
+    return this.http.get<AdminDashboardResponse>(`${API_BASE}/admin/dashboard`, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
+  }
+
   getAdminConfig(silent = true): Observable<AdminConfigResponse> {
     return this.http.get<AdminConfigResponse>(`${API_BASE}/admin/config`, {
       context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
@@ -165,6 +198,48 @@ export class ApiService {
     postalCode?: string;
   }): Observable<AdminCafeCreateResponse> {
     return this.http.post<AdminCafeCreateResponse>(`${API_BASE}/admin/treks`, body);
+  }
+
+  getAdminCafePlans(silent = true): Observable<AdminPlanListResponse> {
+    return this.http.get<AdminPlanListResponse>(`${API_BASE}/admin/cafes`, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
+  }
+
+  updateAdminCafePlan(showtimeId: number, body: {
+    cityId: number;
+    venueName: string;
+    title?: string;
+    startsAt?: string;
+    address?: string;
+    postalCode?: string;
+  }): Observable<AdminCafeCreateResponse> {
+    return this.http.put<AdminCafeCreateResponse>(`${API_BASE}/admin/cafes/${showtimeId}`, body);
+  }
+
+  deleteAdminCafePlan(showtimeId: number): Observable<void> {
+    return this.http.delete<void>(`${API_BASE}/admin/cafes/${showtimeId}`);
+  }
+
+  getAdminTrekPlans(silent = true): Observable<AdminPlanListResponse> {
+    return this.http.get<AdminPlanListResponse>(`${API_BASE}/admin/treks`, {
+      context: silent ? new HttpContext().set(SKIP_GLOBAL_LOADING, true) : undefined
+    });
+  }
+
+  updateAdminTrekPlan(showtimeId: number, body: {
+    cityId: number;
+    venueName: string;
+    title?: string;
+    startsAt?: string;
+    address?: string;
+    postalCode?: string;
+  }): Observable<AdminCafeCreateResponse> {
+    return this.http.put<AdminCafeCreateResponse>(`${API_BASE}/admin/treks/${showtimeId}`, body);
+  }
+
+  deleteAdminTrekPlan(showtimeId: number): Observable<void> {
+    return this.http.delete<void>(`${API_BASE}/admin/treks/${showtimeId}`);
   }
 
   joinLobby(showtimeId: number, silent = false) {

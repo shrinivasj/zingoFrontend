@@ -57,6 +57,20 @@ export class AuthService {
     );
   }
 
+
+  requestEmailOtp(email: string) {
+    return this.api.requestEmailOtp(email);
+  }
+
+  verifyEmailOtp(email: string, code: string, displayName?: string) {
+    return this.api.verifyEmailOtp(email, code, displayName).pipe(
+      tap((resp) => {
+        this.setToken(resp.token);
+        this.setUser(resp.user);
+      })
+    );
+  }
+
   loadMe(force = false) {
     const current = this.userSubject.value;
     if (!force && current) {

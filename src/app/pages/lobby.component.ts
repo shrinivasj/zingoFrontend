@@ -28,7 +28,7 @@ import { Subscription } from 'rxjs';
         <p class="joined">{{ liveCount }} people joined this lobby</p>
       </div>
 
-      <section class="trek-section">
+      <section class="trek-section" *ngIf="isTrekLobby">
         <div class="trek-head">
           <h2>Trek Groups</h2>
           <button
@@ -74,7 +74,7 @@ import { Subscription } from 'rxjs';
         </ng-template>
       </section>
 
-      <section class="trek-section" *ngIf="pendingTrekRequests.length">
+      <section class="trek-section" *ngIf="isTrekLobby && pendingTrekRequests.length">
         <div class="trek-head">
           <h2>Join Requests</h2>
         </div>
@@ -436,6 +436,8 @@ export class LobbyComponent implements OnInit, OnDestroy {
   liveCount = 0;
   exiting = false;
   currentAvatarUrl = '';
+  isTrekLobby = false;
+  private trekDataLoaded = false;
   private subscription?: StompSubscription | null;
   private refreshDebounceTimer?: ReturnType<typeof setTimeout>;
   private refreshQueued = false;
@@ -471,7 +473,9 @@ export class LobbyComponent implements OnInit, OnDestroy {
     this.api.getProfile().subscribe((profile) => {
       this.currentUserId = profile.userId;
       this.currentAvatarUrl = profile.avatarUrl || '';
-      this.reloadTrekData();
+      if (this.isTrekLobby && !this.trekDataLoaded) {
+        this.reloadTrekData();
+      }
     });
     this.refreshUsers();
     this.refreshTimer = setInterval(() => this.refreshUsers(), 10000);
@@ -494,10 +498,27 @@ export class LobbyComponent implements OnInit, OnDestroy {
       this.users = resp.users;
       this.orbitUsers = this.users.slice(0, 12);
       this.liveCount = resp.total;
+
+      const nextIsTrekLobby = resp.eventType === 'TREK';
+      if (!nextIsTrekLobby) {
+        this.isTrekLobby = false;
+        this.clearTrekData();
+        return;
+      }
+
+      this.isTrekLobby = true;
+      if (this.currentUserId != null && !this.trekDataLoaded) {
+        this.reloadTrekData();
+      }
     });
   }
 
   private reloadTrekData() {
+    if (!this.isTrekLobby) {
+      return;
+    }
+    this.trekDataLoaded = true;
+
     this.api.getTrekHostStatus().subscribe({
       next: (status) => {
         this.trekHostEnabled = !!status?.trekHostEnabled;
@@ -520,6 +541,17 @@ export class LobbyComponent implements OnInit, OnDestroy {
     }, () => {
       this.pendingTrekRequests = [];
     });
+  }
+
+  private clearTrekData() {
+    this.trekDataLoaded = false;
+    this.trekGroups = [];
+    this.pendingTrekRequests = [];
+    this.hostGroupId = null;
+    this.trekHostEnabled = false;
+    this.trekActionMessage = '';
+    this.requestingGroupIds.clear();
+    this.processingRequestIds.clear();
   }
 
   onboardAsTrekHost() {
@@ -684,6 +716,6 @@ export class LobbyComponent implements OnInit, OnDestroy {
   }
 
   private isGroupEventContext() {
-    return this.trekGroups.length > 0 || this.pendingTrekRequests.length > 0 || this.hostGroupId !== null;
+    return this.isTrekLobby;
   }
 }

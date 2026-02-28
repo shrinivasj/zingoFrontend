@@ -646,7 +646,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
           showtimes,
           eventTitle: event.title,
           venueName: selectedVenue?.name,
-          eventPosterUrl: event.posterUrl ?? null
+          eventPosterUrl: event.posterUrl ?? null,
+          eventType: event.type
         },
         width: '92vw',
         maxWidth: '420px',
