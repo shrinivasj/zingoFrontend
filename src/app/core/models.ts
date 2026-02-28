@@ -226,4 +226,15 @@ export interface AdminDashboardResponse {
   recentActivities: AdminActivityItem[];
 }
 
+export interface CsvImportResponse {
+  cityName: string;
+  postalCode?: string | null;
+  eventType: EventItem['type'];
+  rowsProcessed: number;
+  rowsSkipped: number;
+  venuesUpserted: number;
+  eventsUpserted: number;
+  showtimesUpserted: number;
+}
+
 export type ScrapeSyncResponse = MovieSyncResponse;

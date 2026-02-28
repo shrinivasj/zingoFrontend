@@ -74,6 +74,9 @@ type PlanKind = 'MOVIE' | 'CAFE' | 'TREK';
       </ng-container>
 
       <div class="form">
+        <label>Date</label>
+        <input class="date-input" type="date" [value]="selectedDate" (input)="onDateChange($event)" />
+
         <label>City</label>
         <ng-container *ngIf="cities$ | async as cities; else cityLoading">
           <mat-form-field appearance="outline" class="select-field">
@@ -257,6 +260,17 @@ type PlanKind = 'MOVIE' | 'CAFE' | 'TREK';
         background: #fff;
         border-radius: 18px;
       }
+      .date-input {
+        width: 100%;
+        height: 54px;
+        border-radius: 18px;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        background: #fff;
+        padding: 0 16px;
+        font-size: 16px;
+        color: #111;
+        box-sizing: border-box;
+      }
       h2 {
         margin: 0 0 16px;
         font-size: 24px;
@@ -325,12 +339,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private venueId$ = new BehaviorSubject<number | null>(null);
   private eventId$ = new BehaviorSubject<number | null>(null);
   private planType$ = new BehaviorSubject<PlanKind>('MOVIE');
+  private selectedDate$ = new BehaviorSubject<string>(this.todayDateValue());
   private reloadTick$ = new BehaviorSubject<number>(0);
   private venueShowtimesCache = new Map<number, Observable<Showtime[]>>();
   private citiesSnapshot: City[] = [];
   private venuesSnapshot: Venue[] = [];
 
   cities$: Observable<City[]> = of([]);
+  selectedDate = this.todayDateValue();
 
   readonly venues$ = combineLatest([this.cityId$, this.reloadTick$]).pipe(
     switchMap(([cityId]) => (cityId ? this.api.getVenues(cityId).pipe(catchError(() => of([]))) : of([]))),
@@ -349,14 +365,21 @@ export class DashboardComponent implements OnInit, OnDestroy {
     shareReplay({ bufferSize: 1, refCount: false })
   );
 
-  readonly venueShowtimes$ = combineLatest([this.venueId$, this.reloadTick$]).pipe(
-    switchMap(([venueId]) => (venueId ? this.getVenueShowtimes$(venueId) : of([]))),
+  readonly venueShowtimes$ = combineLatest([this.venueId$, this.selectedDate$, this.reloadTick$]).pipe(
+    switchMap(([venueId, selectedDate]) =>
+      venueId ? this.getVenueShowtimes$(venueId).pipe(map((showtimes) => this.filterShowtimesByDate(showtimes, selectedDate))) : of([])
+    ),
     shareReplay({ bufferSize: 1, refCount: false })
   );
 
-  readonly cityShowtimes$ = combineLatest([this.cityId$, this.reloadTick$]).pipe(
-    switchMap(([cityId]) =>
-      cityId ? this.api.getShowtimes(undefined, undefined, undefined, undefined, cityId).pipe(catchError(() => of([]))) : of([])
+  readonly cityShowtimes$ = combineLatest([this.cityId$, this.selectedDate$, this.reloadTick$]).pipe(
+    switchMap(([cityId, selectedDate]) =>
+      cityId
+        ? this.api.getShowtimes(undefined, undefined, undefined, undefined, cityId).pipe(
+            map((showtimes) => this.filterShowtimesByDate(showtimes, selectedDate)),
+            catchError(() => of([]))
+          )
+        : of([])
     ),
     shareReplay({ bufferSize: 1, refCount: false })
   );
@@ -450,6 +473,17 @@ export class DashboardComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  onDateChange(event: Event) {
+    const input = event.target as HTMLInputElement | null;
+    const value = input?.value || this.todayDateValue();
+    this.selectedDate = value;
+    this.selectedDate$.next(value);
+    this.selectedVenueId = undefined;
+    this.selectedEventId = undefined;
+    this.venueId$.next(null);
+    this.eventId$.next(null);
   }
 
   onCityChange(cityId: number) {
@@ -634,8 +668,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return request$;
   }
 
+  private filterShowtimesByDate(showtimes: Showtime[], selectedDate: string) {
+    return showtimes.filter((showtime) => showtime.startsAt.slice(0, 10) === selectedDate);
+  }
+
   private sortShowtimes(showtimes: Showtime[]) {
     return [...showtimes].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+  }
+
+  private todayDateValue() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = `${now.getMonth() + 1}`.padStart(2, '0');
+    const day = `${now.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   private openShowtimesDialog(event: EventItem, showtimes: Showtime[]) {

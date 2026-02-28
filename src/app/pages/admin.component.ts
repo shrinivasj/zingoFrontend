@@ -3,8 +3,9 @@ import { CommonModule } from '@angular/common';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
+import { timeout } from 'rxjs';
 import { ApiService } from '../core/api.service';
-import { AdminCafeCreateResponse, AdminConfigEntry, AdminDashboardResponse, City, MovieSyncResponse } from '../core/models';
+import { AdminCafeCreateResponse, AdminConfigEntry, AdminDashboardResponse, City, CsvImportResponse, MovieSyncResponse } from '../core/models';
 
 type AdminSection = 'dashboard' | 'movie-sync' | 'cafe' | 'trek' | 'maintenance' | 'config';
 type ActivityTone = 'movie' | 'cafe' | 'trek' | 'config' | 'maintenance';
@@ -244,7 +245,17 @@ interface SyncHistoryItem {
                 <input class="text-input" type="number" min="1" max="7" [value]="days" (input)="onDaysInput($event)" />
                 <p class="field-help">Recommended: 1-7 days</p>
               </div>
-              <button class="primary-cta movie" (click)="runMovieSync()" [disabled]="syncing">{{ syncing ? 'Running Sync...' : 'Run Sync' }}</button>
+              <button class="primary-cta movie" (click)="runMovieSync()" [disabled]="syncing || uploadingCsv">{{ syncing ? 'Running Sync...' : 'Run Sync' }}</button>
+              <div class="csv-import-box">
+                <div>
+                  <label>Upload Movies CSV</label>
+                  <input class="csv-input" type="file" accept=".csv,text/csv" (change)="onCsvSelected($event)" />
+                  <p class="field-help">Expected headers: movie, theater, date, showtime, language, format, availability, prices, source</p>
+                  <p class="field-help" *ngIf="selectedCsvName">Selected: {{ selectedCsvName }}</p>
+                </div>
+                <button class="secondary-cta compact" type="button" (click)="uploadMoviesCsv()" [disabled]="!selectedCsvFile || uploadingCsv || syncing">{{ uploadingCsv ? 'Uploading...' : 'Import CSV' }}</button>
+              </div>
+              <p class="success" *ngIf="csvImportResult">Imported {{ csvImportResult.rowsProcessed }} rows, skipped {{ csvImportResult.rowsSkipped }} for {{ csvImportResult.cityName }}.</p>
               <p class="error" *ngIf="syncError">{{ syncError }}</p>
             </article>
             <section class="content-block">
@@ -529,6 +540,9 @@ interface SyncHistoryItem {
       .text-input:focus,.config-editor-input:focus { outline:none; border-color:#d99760; background:#fffdfb; }
       .field-help { margin:10px 0 0; color:#7a736b; font-size:15px; }
       .studio-actions,.toolbar-row { display:flex; gap:16px; }
+      .csv-import-box { display:flex; align-items:flex-end; gap:16px; border:1px dashed #ddd6cf; border-radius:22px; padding:18px; background:#fffaf5; }
+      .csv-import-box > div { flex:1; }
+      .csv-input { width:100%; padding:14px 0; font-size:16px; }
       .primary-cta,.secondary-cta,.edit-btn { height:74px; border-radius:22px; border:1px solid #ded8d2; font-size:22px; font-weight:700; cursor:pointer; padding:0 28px; }
       .primary-cta { flex:1; color:#fff; background:#d7d0c8; border-color:#d7d0c8; }
       .primary-cta.movie { background:#7e8ba1; border-color:#7e8ba1; }
@@ -570,6 +584,10 @@ export class AdminComponent implements OnInit {
   syncing = false;
   syncError = '';
   syncResult: MovieSyncResponse | null = null;
+  csvImportResult: CsvImportResponse | null = null;
+  selectedCsvFile: File | null = null;
+  selectedCsvName = '';
+  uploadingCsv = false;
 
   cafeDraft: PlanDraft = this.createEmptyDraft();
   trekDraft: PlanDraft = this.createEmptyDraft();
@@ -652,6 +670,15 @@ export class AdminComponent implements OnInit {
   onPostalCodeInput(event: Event) {
     const input = event.target as HTMLInputElement | null;
     this.postalCode = (input?.value ?? '').replace(/\D+/g, '').slice(0, 6);
+  }
+
+  onCsvSelected(event: Event) {
+    const input = event.target as HTMLInputElement | null;
+    const file = input?.files?.[0] ?? null;
+    this.selectedCsvFile = file;
+    this.selectedCsvName = file?.name ?? '';
+    this.csvImportResult = null;
+    this.syncError = '';
   }
 
   onDaysInput(event: Event) {
@@ -802,6 +829,38 @@ export class AdminComponent implements OnInit {
     });
   }
 
+  uploadMoviesCsv() {
+    if (!this.selectedCsvFile) {
+      this.syncError = 'Select a CSV file.';
+      return;
+    }
+    const cityName = this.cities.find((city) => city.id === this.selectedCityId)?.name;
+    if (!this.selectedCityId) {
+      this.syncError = 'Select a city before importing the CSV.';
+      return;
+    }
+    this.uploadingCsv = true;
+    this.syncError = '';
+    this.csvImportResult = null;
+    this.api.importMoviesCsv(this.selectedCsvFile, {
+      cityId: this.selectedCityId,
+      postalCode: this.postalCode.trim() || undefined,
+      cityName: cityName || undefined
+    }).pipe(timeout(30000)).subscribe({
+      next: (resp: CsvImportResponse) => {
+        this.uploadingCsv = false;
+        this.csvImportResult = resp;
+        this.selectedCsvFile = null;
+        this.selectedCsvName = '';
+        this.loadDashboard();
+      },
+      error: (error) => {
+        this.uploadingCsv = false;
+        this.syncError = error?.error?.message || 'CSV import failed';
+      }
+    });
+  }
+
   runMovieSync() {
     const cityName = this.cities.find((city) => city.id === this.selectedCityId)?.name;
     const pincode = this.postalCode.trim();
@@ -812,7 +871,7 @@ export class AdminComponent implements OnInit {
     this.syncing = true;
     this.syncError = '';
     this.api.syncMovies(pincode || undefined, cityName, this.days).subscribe({
-      next: (resp) => {
+      next: (resp: MovieSyncResponse) => {
         this.syncResult = resp;
         this.syncing = false;
         this.loadDashboard();

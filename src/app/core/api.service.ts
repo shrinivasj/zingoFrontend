@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import {
   City,
   Conversation,
+  CsvImportResponse,
   AdminStatus,
   AdminDashboardResponse,
   AdminConfigResponse,
@@ -149,6 +150,15 @@ export class ApiService {
 
   syncMovies(postalCode?: string, cityName?: string, days?: number): Observable<MovieSyncResponse> {
     return this.http.post<MovieSyncResponse>(`${API_BASE}/movies/sync`, { postalCode, cityName, days });
+  }
+
+  importMoviesCsv(file: File, options?: { cityId?: number; postalCode?: string; cityName?: string }): Observable<CsvImportResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (options?.cityId) formData.append('cityId', String(options.cityId));
+    if (options?.postalCode) formData.append('postalCode', options.postalCode);
+    if (options?.cityName) formData.append('cityName', options.cityName);
+    return this.http.post<CsvImportResponse>(`${API_BASE}/movies/import`, formData);
   }
 
   // Backward-compatible alias for older callers.
