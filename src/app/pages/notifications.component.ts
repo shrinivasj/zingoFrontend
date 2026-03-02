@@ -6,6 +6,7 @@ import { finalize } from 'rxjs/operators';
 import { ApiService } from '../core/api.service';
 import { NotificationItem } from '../core/models';
 import { StompService } from '../core/stomp.service';
+import { LobbyPresenceService } from '../core/lobby-presence.service';
 import { StompSubscription } from '@stomp/stompjs';
 
 @Component({
@@ -156,7 +157,7 @@ export class NotificationsComponent implements OnInit, OnDestroy {
   private busyNotificationIds = new Set<number>();
   private hiddenNotificationIds = new Set<number>();
 
-  constructor(private api: ApiService, private router: Router, private stomp: StompService, private snackBar: MatSnackBar) {}
+  constructor(private api: ApiService, private router: Router, private stomp: StompService, private snackBar: MatSnackBar, private lobbyPresence: LobbyPresenceService) {}
 
   ngOnInit() {
     this.load();
@@ -212,6 +213,10 @@ export class NotificationsComponent implements OnInit, OnDestroy {
         .subscribe({
           next: (resp) => {
             this.markHandled(note);
+            const showtimeId = this.extractShowtimeId(note);
+            if (showtimeId) {
+              this.lobbyPresence.exitLobby(showtimeId).subscribe({ error: () => {} });
+            }
             if (resp.conversationId) {
               this.router.navigate(['/chat', resp.conversationId]);
               return;
@@ -234,6 +239,10 @@ export class NotificationsComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (resp) => {
           this.markHandled(note);
+          const showtimeId = this.extractShowtimeId(note);
+          if (showtimeId) {
+            this.lobbyPresence.exitLobby(showtimeId).subscribe({ error: () => {} });
+          }
           if (resp.conversationId) {
             this.router.navigate(['/chat', resp.conversationId]);
             return;
@@ -445,6 +454,20 @@ export class NotificationsComponent implements OnInit, OnDestroy {
       return null;
     }
     return statusValue.toUpperCase();
+  }
+
+  private extractShowtimeId(note: NotificationItem): number | null {
+    const raw = note.payload?.['showtimeId'];
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return Math.trunc(raw);
+    }
+    if (typeof raw === 'string') {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        return Math.trunc(parsed);
+      }
+    }
+    return null;
   }
 
   private extractConversationId(note: NotificationItem): number | null {

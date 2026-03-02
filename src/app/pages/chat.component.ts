@@ -8,6 +8,7 @@ import { StompService } from '../core/stomp.service';
 import { StompSubscription } from '@stomp/stompjs';
 import { AuthService } from '../core/auth.service';
 import { E2eeService } from '../core/e2ee.service';
+import { LobbyPresenceService } from '../core/lobby-presence.service';
 import { Subscription, firstValueFrom } from 'rxjs';
 
 @Component({
@@ -260,7 +261,8 @@ export class ChatComponent implements OnInit, OnDestroy {
     private router: Router,
     private auth: AuthService,
     private e2ee: E2eeService,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private lobbyPresence: LobbyPresenceService
   ) {}
 
   ngOnInit() {
@@ -396,6 +398,9 @@ export class ChatComponent implements OnInit, OnDestroy {
         this.displayName = this.conversation.otherUserName || 'Chat';
         this.participantLabel = this.conversation.eventTitle || '';
         this.avatarUrl = this.conversation.otherUserAvatarUrl || '';
+        if (this.conversation.showtimeId) {
+          this.lobbyPresence.exitLobby(this.conversation.showtimeId).subscribe({ error: () => {} });
+        }
       }
       this.otherUserPublicKey = this.conversation.otherUserE2eePublicKey || null;
       const messagesPromise = firstValueFrom(this.api.getMessages(this.conversationId));

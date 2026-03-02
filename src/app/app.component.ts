@@ -159,6 +159,7 @@ export class AppComponent implements OnDestroy {
   }
 
   private handleRealtimeNotification(notification: NotificationItem) {
+    this.maybeExitLobbyForAcceptedInvite(notification);
     this.showPopupForInvite(notification);
     // New invites and system updates can create/activate conversations.
     this.syncConversationSubscriptions();
@@ -179,6 +180,25 @@ export class AppComponent implements OnDestroy {
       .onAction()
       .pipe(take(1))
       .subscribe(() => this.router.navigate(['/notifications']));
+  }
+
+  private maybeExitLobbyForAcceptedInvite(notification: NotificationItem) {
+    const payloadType = typeof notification.payload?.['type'] === 'string'
+      ? notification.payload['type'].toUpperCase()
+      : '';
+    if (notification.type !== 'SYSTEM' || payloadType !== 'INVITE_ACCEPTED') {
+      return;
+    }
+    const rawShowtimeId = notification.payload?.['showtimeId'];
+    const showtimeId = typeof rawShowtimeId === 'number'
+      ? Math.trunc(rawShowtimeId)
+      : typeof rawShowtimeId === 'string' && Number.isFinite(Number(rawShowtimeId))
+        ? Math.trunc(Number(rawShowtimeId))
+        : null;
+    if (!showtimeId) {
+      return;
+    }
+    this.lobbyPresenceService.exitLobby(showtimeId).subscribe({ error: () => {} });
   }
 
   private startChatNotifications() {

@@ -75,7 +75,7 @@ type PlanKind = 'MOVIE' | 'CAFE' | 'TREK';
 
       <div class="form">
         <label>Date</label>
-        <input class="date-input" type="date" [value]="selectedDate" (input)="onDateChange($event)" />
+        <input class="date-input" type="date" [value]="selectedDate" [min]="minSelectableDate" (input)="onDateChange($event)" />
 
         <label>City</label>
         <ng-container *ngIf="cities$ | async as cities; else cityLoading">
@@ -346,7 +346,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private venuesSnapshot: Venue[] = [];
 
   cities$: Observable<City[]> = of([]);
-  selectedDate = this.todayDateValue();
+  readonly minSelectableDate = this.todayDateValue();
+  selectedDate = this.minSelectableDate;
 
   readonly venues$ = combineLatest([this.cityId$, this.reloadTick$]).pipe(
     switchMap(([cityId]) => (cityId ? this.api.getVenues(cityId).pipe(catchError(() => of([]))) : of([]))),
@@ -477,7 +478,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   onDateChange(event: Event) {
     const input = event.target as HTMLInputElement | null;
-    const value = input?.value || this.todayDateValue();
+    const value = this.clampDateToToday(input?.value || this.minSelectableDate);
+    if (input) {
+      input.value = value;
+    }
     this.selectedDate = value;
     this.selectedDate$.next(value);
     this.selectedVenueId = undefined;
@@ -682,6 +686,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
     const month = `${now.getMonth() + 1}`.padStart(2, '0');
     const day = `${now.getDate()}`.padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private clampDateToToday(value: string) {
+    return value < this.minSelectableDate ? this.minSelectableDate : value;
   }
 
   private openShowtimesDialog(event: EventItem, showtimes: Showtime[]) {
